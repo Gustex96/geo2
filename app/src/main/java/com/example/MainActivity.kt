@@ -18,16 +18,18 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.PinDrop
-import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.PinDrop
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.TableChart
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -43,11 +45,13 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.ui.screens.FavoritesScreen
+import com.example.ui.screens.KmdfTableScreen
 import com.example.ui.screens.LotDetailSheet
 import com.example.ui.screens.MapScreen
 import com.example.ui.screens.ReverseGeocodeScreen
 import com.example.ui.screens.SearchScreen
 import com.example.ui.screens.WmsInfoScreen
+import com.example.ui.theme.CadastreYellow
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.GeocodingViewModel
 
@@ -82,14 +86,29 @@ class MainActivity : ComponentActivity() {
                                     text = when (uiState.currentTab) {
                                         0 -> "GeoDF • Geocodificação"
                                         1 -> "Mapa WMS • Cadastro DF"
-                                        2 -> "Geocodificação Reversa"
-                                        3 -> "OGC WMS • IDE DF"
-                                        4 -> "Lotes Salvos"
+                                        2 -> "Tabela KM-DF (KMZ)"
+                                        3 -> "Geocodificação Reversa"
+                                        4 -> "OGC WMS • IDE DF"
+                                        5 -> "Lotes Salvos"
                                         else -> "GeoDF"
                                     },
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold
                                 )
+                            },
+                            actions = {
+                                IconButton(
+                                    onClick = {
+                                        if (uiState.currentTab == 5) viewModel.setTab(0) else viewModel.setTab(5)
+                                    },
+                                    modifier = Modifier.testTag("top_action_favorites")
+                                ) {
+                                    Icon(
+                                        imageVector = if (uiState.currentTab == 5) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
+                                        contentDescription = "Lotes Salvos",
+                                        tint = if (uiState.currentTab == 5 || uiState.favorites.isNotEmpty()) CadastreYellow else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             },
                             colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                                 containerColor = MaterialTheme.colorScheme.surface,
@@ -134,7 +153,20 @@ class MainActivity : ComponentActivity() {
                                 onClick = { viewModel.setTab(2) },
                                 icon = {
                                     Icon(
-                                        imageVector = if (uiState.currentTab == 2) Icons.Filled.PinDrop else Icons.Outlined.PinDrop,
+                                        imageVector = if (uiState.currentTab == 2) Icons.Filled.TableChart else Icons.Outlined.TableChart,
+                                        contentDescription = "KM-DF"
+                                    )
+                                },
+                                label = { Text("KM-DF") },
+                                modifier = Modifier.testTag("nav_tab_kmdf")
+                            )
+
+                            NavigationBarItem(
+                                selected = uiState.currentTab == 3,
+                                onClick = { viewModel.setTab(3) },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (uiState.currentTab == 3) Icons.Filled.PinDrop else Icons.Outlined.PinDrop,
                                         contentDescription = "Reversa"
                                     )
                                 },
@@ -143,32 +175,19 @@ class MainActivity : ComponentActivity() {
                             )
 
                             NavigationBarItem(
-                                selected = uiState.currentTab == 3,
+                                selected = uiState.currentTab == 4,
                                 onClick = {
-                                    viewModel.setTab(3)
+                                    viewModel.setTab(4)
                                     viewModel.loadWmsCapabilities()
                                 },
                                 icon = {
                                     Icon(
-                                        imageVector = if (uiState.currentTab == 3) Icons.Filled.Language else Icons.Outlined.Language,
+                                        imageVector = if (uiState.currentTab == 4) Icons.Filled.Language else Icons.Outlined.Language,
                                         contentDescription = "WMS Info"
                                     )
                                 },
                                 label = { Text("WMS Info") },
                                 modifier = Modifier.testTag("nav_tab_wms")
-                            )
-
-                            NavigationBarItem(
-                                selected = uiState.currentTab == 4,
-                                onClick = { viewModel.setTab(4) },
-                                icon = {
-                                    Icon(
-                                        imageVector = if (uiState.currentTab == 4) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
-                                        contentDescription = "Salvos"
-                                    )
-                                },
-                                label = { Text("Salvos") },
-                                modifier = Modifier.testTag("nav_tab_favorites")
                             )
                         }
                     }
@@ -205,7 +224,18 @@ class MainActivity : ComponentActivity() {
                                 onPan = viewModel::pan
                             )
 
-                            2 -> ReverseGeocodeScreen(
+                            2 -> KmdfTableScreen(
+                                uiState = uiState,
+                                onQueryChanged = viewModel::onKmdfSearchQueryChanged,
+                                onRodoviaSelected = viewModel::onRodoviaFilterSelected,
+                                onCustomUrlChanged = viewModel::onCustomKmzUrlChanged,
+                                onDownloadKmz = viewModel::loadKmzFromUrl,
+                                onLoadFileUri = viewModel::loadKmzFromUri,
+                                onViewOnMap = viewModel::viewKmdfOnMap,
+                                onReverseGeocodeKm = viewModel::reverseGeocodeKmdfRecord
+                            )
+
+                            3 -> ReverseGeocodeScreen(
                                 uiState = uiState,
                                 onLatChanged = viewModel::onReverseLatChanged,
                                 onLonChanged = viewModel::onReverseLonChanged,
@@ -218,12 +248,12 @@ class MainActivity : ComponentActivity() {
                                 onToggleFavorite = viewModel::toggleFavorite
                             )
 
-                            3 -> WmsInfoScreen(
+                            4 -> WmsInfoScreen(
                                 uiState = uiState,
                                 onRefreshCapabilities = viewModel::loadWmsCapabilities
                             )
 
-                            4 -> FavoritesScreen(
+                            5 -> FavoritesScreen(
                                 uiState = uiState,
                                 onSelectLot = viewModel::selectLot,
                                 onViewOnMap = { lot ->

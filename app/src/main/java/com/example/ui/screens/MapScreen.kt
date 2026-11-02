@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -210,6 +211,18 @@ fun MapScreen(
                                 style = Stroke(width = 4f)
                             )
                         }
+                    }
+                }
+
+                // If a KMDF record is selected, draw a highway marker
+                val kmRec = uiState.selectedKmdfRecord
+                if (kmRec != null) {
+                    val kx = ((kmRec.longitude - minLon) / (maxLon - minLon) * canvasW).toFloat()
+                    val ky = ((maxLat - kmRec.latitude) / (maxLat - minLat) * canvasH).toFloat()
+                    if (kx in -50f..(canvasW + 50f) && ky in -50f..(canvasH + 50f)) {
+                        drawCircle(color = Color(0xFF023E8A), radius = 26f, center = Offset(kx, ky))
+                        drawCircle(color = Color.White, radius = 20f, center = Offset(kx, ky))
+                        drawCircle(color = Color(0xFF00B4D8), radius = 12f, center = Offset(kx, ky))
                     }
                 }
 
@@ -491,6 +504,89 @@ fun MapScreen(
                         modifier = Modifier.testTag("open_dossier_from_map_button")
                     ) {
                         Text("Ficha")
+                    }
+                }
+            }
+        }
+
+        // Bottom Selected KMDF Record Card
+        val kmRec = uiState.selectedKmdfRecord
+        if (kmRec != null && uiState.selectedLot == null) {
+            ElevatedCard(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(12.dp)
+                    .testTag("map_selected_kmdf_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 8.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Surface(
+                                color = Color(0xFF023E8A),
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Text(
+                                    text = kmRec.rodovia,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+
+                            Surface(
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Text(
+                                    text = kmRec.kmDisplay,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text(
+                            text = kmRec.trecho,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        Text(
+                            text = "WGS84: ${kmRec.formattedDecimalCoords}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Button(
+                        onClick = { onMapTapped(kmRec.latitude, kmRec.longitude) },
+                        modifier = Modifier.testTag("reverse_geocode_km_button")
+                    ) {
+                        Text("Ver Lotes")
                     }
                 }
             }

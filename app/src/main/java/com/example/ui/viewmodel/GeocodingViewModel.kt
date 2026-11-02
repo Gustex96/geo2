@@ -1,12 +1,16 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
+import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.LocalStore
 import com.example.data.model.CadastreLot
+import com.example.data.model.KmdfRecord
 import com.example.data.model.WmsServiceInfo
 import com.example.data.repository.GeocodingRepository
+import com.example.data.repository.KmdfRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,11 +49,43 @@ data class GeocodingUiState(
     val wmsInfo: WmsServiceInfo = WmsServiceInfo(),
     val isLoadingWmsInfo: Boolean = false,
     val wmsInfoError: String? = null,
-    val currentTab: Int = 0 // 0: Busca, 1: Mapa WMS, 2: Reversa, 3: WMS Info, 4: Favoritos
-)
+    // KM-DF Data
+    val kmdfRecords: List<KmdfRecord> = emptyList(),
+    val kmdfSearchQuery: String = "",
+    val selectedRodoviaFilter: String = "TODAS",
+    val selectedKmdfRecord: KmdfRecord? = null,
+    val isLoadingKmz: Boolean = false,
+    val kmzError: String? = null,
+    val kmzSuccessMessage: String? = null,
+    val customKmzUrlInput: String = "https://github.com/Gustex96/geoportal/raw/db6ef237bcbd3a6381222194be4c18f70423365b/kmdf.kmz",
+    val currentTab: Int = 0 // 0: Busca, 1: Mapa WMS, 2: Reversa, 3: Tabela KM-DF, 4: WMS Info, 5: Favoritos
+) {
+    val filteredKmdfRecords: List<KmdfRecord>
+        get() {
+            val q = kmdfSearchQuery.trim().lowercase()
+            return kmdfRecords.filter { record ->
+                val matchesRodovia = selectedRodoviaFilter == "TODAS" ||
+                        record.rodovia.equals(selectedRodoviaFilter, ignoreCase = true)
+                val matchesQuery = q.isEmpty() ||
+                        record.rodovia.lowercase().contains(q) ||
+                        record.kmDisplay.lowercase().contains(q) ||
+                        record.trecho.lowercase().contains(q) ||
+                        record.ra.lowercase().contains(q) ||
+                        record.descricao.lowercase().contains(q)
+                matchesRodovia && matchesQuery
+            }
+        }
+
+    val availableRodovias: List<String>
+        get() {
+            val distinct = kmdfRecords.map { it.rodovia }.distinct().sorted()
+            return listOf("TODAS") + distinct
+        }
+}
 
 class GeocodingViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = GeocodingRepository()
+    private val kmdfRepository = KmdfRepository()
     private val localStore = LocalStore(application)
 
     private val _uiState = MutableStateFlow(GeocodingUiState())
@@ -76,7 +112,7 @@ class GeocodingViewModel(application: Application) : AndroidViewModel(applicatio
     init {
         loadLocalData()
         updateMapTileUrl()
-        // Run initial sample search so user sees live data immediately
+        loadPreloadedKmdf()
         performSearch("SQN 205")
     }
 
@@ -84,6 +120,16 @@ class GeocodingViewModel(application: Application) : AndroidViewModel(applicatio
         val favs = localStore.getFavorites()
         val recents = localStore.getRecentSearches()
         _uiState.update { it.copy(favorites = favs, recentSearches = recents) }
+    }
+
+    private fun loadPreloadedKmdf() {
+        val defaultTable = kmdfRepository.getPreloadedKmdfTable()
+        _uiState.update {
+            it.copy(
+                kmdfRecords = defaultTable,
+                kmzSuccessMessage = "Tabela KM-DF carregada com ${defaultTable.size} marcos de quilometragem de rodovias do DF."
+            )
+        }
     }
 
     fun setTab(index: Int) {
@@ -145,7 +191,7 @@ class GeocodingViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun selectLot(lot: CadastreLot) {
-        _uiState.update { it.copy(selectedLot = lot) }
+        _uiState.update { it.copy(selectedLot = lot, selectedKmdfRecord = null) }
         if (lot.latitude != 0.0 && lot.longitude != 0.0) {
             centerMapOn(lot.latitude, lot.longitude)
         }
@@ -162,6 +208,107 @@ class GeocodingViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun isFavorite(lot: CadastreLot): Boolean {
         return _uiState.value.favorites.any { it.objectId == lot.objectId }
+    }
+
+    // KM-DF Methods
+    fun onKmdfSearchQueryChanged(q: String) {
+        _uiState.update { it.copy(kmdfSearchQuery = q) }
+    }
+
+    fun onRodoviaFilterSelected(rodovia: String) {
+        _uiState.update { it.copy(selectedRodoviaFilter = rodovia) }
+    }
+
+    fun onCustomKmzUrlChanged(url: String) {
+        _uiState.update { it.copy(customKmzUrlInput = url, kmzError = null, kmzSuccessMessage = null) }
+    }
+
+    fun loadKmzFromUrl(url: String = _uiState.value.customKmzUrlInput) {
+        val trimmed = url.trim()
+        if (trimmed.isBlank()) return
+
+        _uiState.update {
+            it.copy(
+                isLoadingKmz = true,
+                kmzError = null,
+                kmzSuccessMessage = null,
+                customKmzUrlInput = trimmed
+            )
+        }
+
+        viewModelScope.launch {
+            val result = kmdfRepository.loadFromUrl(trimmed)
+            result.onSuccess { records ->
+                _uiState.update {
+                    it.copy(
+                        kmdfRecords = records,
+                        isLoadingKmz = false,
+                        kmzSuccessMessage = "KMZ carregado com sucesso! ${records.size} registros adicionados à tabela."
+                    )
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        isLoadingKmz = false,
+                        kmzError = err.localizedMessage ?: "Erro ao carregar o arquivo KMZ"
+                    )
+                }
+            }
+        }
+    }
+
+    fun loadKmzFromUri(context: Context, uri: Uri) {
+        _uiState.update {
+            it.copy(
+                isLoadingKmz = true,
+                kmzError = null,
+                kmzSuccessMessage = null
+            )
+        }
+
+        viewModelScope.launch {
+            val result = kmdfRepository.loadFromUri(context, uri)
+            result.onSuccess { records ->
+                _uiState.update {
+                    it.copy(
+                        kmdfRecords = records,
+                        isLoadingKmz = false,
+                        kmzSuccessMessage = "Arquivo local KMZ carregado! ${records.size} registros na tabela."
+                    )
+                }
+            }.onFailure { err ->
+                _uiState.update {
+                    it.copy(
+                        isLoadingKmz = false,
+                        kmzError = err.localizedMessage ?: "Erro ao processar arquivo local KMZ"
+                    )
+                }
+            }
+        }
+    }
+
+    fun selectKmdfRecord(record: KmdfRecord) {
+        _uiState.update { it.copy(selectedKmdfRecord = record) }
+    }
+
+    fun clearSelectedKmdfRecord() {
+        _uiState.update { it.copy(selectedKmdfRecord = null) }
+    }
+
+    fun viewKmdfOnMap(record: KmdfRecord) {
+        _uiState.update {
+            it.copy(
+                selectedKmdfRecord = record,
+                currentTab = 1, // Map tab
+                mapZoomDelta = 0.008
+            )
+        }
+        centerMapOn(record.latitude, record.longitude)
+    }
+
+    fun reverseGeocodeKmdfRecord(record: KmdfRecord) {
+        viewKmdfOnMap(record)
+        performReverseGeocode(record.latitude.toString(), record.longitude.toString())
     }
 
     // Reverse Geocode
@@ -296,7 +443,6 @@ class GeocodingViewModel(application: Application) : AndroidViewModel(applicatio
                 layers = s.visibleLayers.toList()
             )
         } else {
-            // WMS layer mapping
             val wmsLayers = s.visibleLayers.map { lId ->
                 when (lId) {
                     "9" -> "5" // Lotes
