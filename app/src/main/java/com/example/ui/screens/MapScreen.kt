@@ -103,6 +103,7 @@ fun MapScreen(
         ) {
             val boxWidthPx = constraints.maxWidth.toFloat()
             val boxHeightPx = constraints.maxHeight.toFloat()
+            val imageLoader = remember(context) { com.example.data.network.NetworkClient.createImageLoader(context) }
 
             // Map Image from WMS / MapServer
             SubcomposeAsyncImage(
@@ -110,6 +111,7 @@ fun MapScreen(
                     .data(uiState.mapTileUrl)
                     .crossfade(true)
                     .build(),
+                imageLoader = imageLoader,
                 contentDescription = "Mapa Cadastral WMS IDE DF",
                 contentScale = ContentScale.FillBounds,
                 modifier = Modifier

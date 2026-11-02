@@ -15,13 +15,11 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
+import com.example.data.network.NetworkClient
 import kotlin.math.sqrt
 
 class GeocodingRepository(
-    private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .build()
+    private val client: OkHttpClient = NetworkClient.okHttpClient
 ) {
     companion object {
         const val WMS_SERVER_URL = "https://geoportal.ide.df.gov.br/server/services/Publico/cadastro_territorial_geoportal/MapServer/WMSServer"

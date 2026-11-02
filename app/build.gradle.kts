@@ -20,6 +20,7 @@ android {
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    manifestPlaceholders["MAPS_API_KEY"] = "DEFAULT_KEY"
   }
 
   // Do not remove or modify these signingConfigs. They are necessary for building, installing,
@@ -107,6 +108,8 @@ dependencies {
   implementation(libs.androidx.room.runtime)
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
+  implementation(libs.maps.compose)
+  implementation(libs.play.services.maps)
   implementation(libs.firebase.ai)
   // Uncomment to use Firestore:
   // implementation(libs.firebase.firestore)

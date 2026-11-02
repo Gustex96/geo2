@@ -12,13 +12,11 @@ import org.xmlpull.v1.XmlPullParser
 import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.util.concurrent.TimeUnit
+import com.example.data.network.NetworkClient
 import java.util.zip.ZipInputStream
 
 class KmdfRepository(
-    private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .build()
+    private val client: OkHttpClient = NetworkClient.okHttpClient
 ) {
 
     suspend fun loadFromUrl(url: String): Result<List<KmdfRecord>> = withContext(Dispatchers.IO) {

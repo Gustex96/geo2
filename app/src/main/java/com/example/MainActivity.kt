@@ -11,19 +11,22 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.PinDrop
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.outlined.BookmarkBorder
-import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.PinDrop
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.TableChart
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -43,8 +46,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import com.example.ui.screens.FavoritesScreen
+import com.example.ui.screens.GoogleMapsScreen
 import com.example.ui.screens.KmdfTableScreen
 import com.example.ui.screens.LotDetailSheet
 import com.example.ui.screens.MapScreen
@@ -61,6 +64,7 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        coil.Coil.setImageLoader(com.example.data.network.NetworkClient.createImageLoader(applicationContext))
         enableEdgeToEdge()
 
         setContent {
@@ -85,11 +89,12 @@ class MainActivity : ComponentActivity() {
                                 Text(
                                     text = when (uiState.currentTab) {
                                         0 -> "GeoDF • Geocodificação"
-                                        1 -> "Mapa WMS • Cadastro DF"
-                                        2 -> "Tabela KM-DF (KMZ)"
-                                        3 -> "Geocodificação Reversa"
-                                        4 -> "OGC WMS • IDE DF"
-                                        5 -> "Lotes Salvos"
+                                        1 -> "Mapa WMS • IDE DF"
+                                        2 -> "Google Maps SDK"
+                                        3 -> "Tabela KM-DF (KMZ)"
+                                        4 -> "Geocodificação Reversa"
+                                        5 -> "Metadados OGC WMS"
+                                        6 -> "Lotes Salvos"
                                         else -> "GeoDF"
                                     },
                                     style = MaterialTheme.typography.titleMedium,
@@ -99,14 +104,32 @@ class MainActivity : ComponentActivity() {
                             actions = {
                                 IconButton(
                                     onClick = {
-                                        if (uiState.currentTab == 5) viewModel.setTab(0) else viewModel.setTab(5)
+                                        if (uiState.currentTab == 5) {
+                                            viewModel.setTab(0)
+                                        } else {
+                                            viewModel.setTab(5)
+                                            viewModel.loadWmsCapabilities()
+                                        }
+                                    },
+                                    modifier = Modifier.testTag("top_action_wms_info")
+                                ) {
+                                    Icon(
+                                        imageVector = if (uiState.currentTab == 5) Icons.Filled.Info else Icons.Outlined.Info,
+                                        contentDescription = "Metadados WMS",
+                                        tint = if (uiState.currentTab == 5) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = {
+                                        if (uiState.currentTab == 6) viewModel.setTab(0) else viewModel.setTab(6)
                                     },
                                     modifier = Modifier.testTag("top_action_favorites")
                                 ) {
                                     Icon(
-                                        imageVector = if (uiState.currentTab == 5) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
+                                        imageVector = if (uiState.currentTab == 6) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
                                         contentDescription = "Lotes Salvos",
-                                        tint = if (uiState.currentTab == 5 || uiState.favorites.isNotEmpty()) CadastreYellow else MaterialTheme.colorScheme.onSurfaceVariant
+                                        tint = if (uiState.currentTab == 6 || uiState.favorites.isNotEmpty()) CadastreYellow else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             },
@@ -140,12 +163,12 @@ class MainActivity : ComponentActivity() {
                                 onClick = { viewModel.setTab(1) },
                                 icon = {
                                     Icon(
-                                        imageVector = if (uiState.currentTab == 1) Icons.Filled.Map else Icons.Outlined.Map,
-                                        contentDescription = "Mapa WMS"
+                                        imageVector = if (uiState.currentTab == 1) Icons.Filled.Public else Icons.Outlined.Public,
+                                        contentDescription = "WMS DF"
                                     )
                                 },
-                                label = { Text("Mapa WMS") },
-                                modifier = Modifier.testTag("nav_tab_map")
+                                label = { Text("WMS DF") },
+                                modifier = Modifier.testTag("nav_tab_wms_map")
                             )
 
                             NavigationBarItem(
@@ -153,7 +176,20 @@ class MainActivity : ComponentActivity() {
                                 onClick = { viewModel.setTab(2) },
                                 icon = {
                                     Icon(
-                                        imageVector = if (uiState.currentTab == 2) Icons.Filled.TableChart else Icons.Outlined.TableChart,
+                                        imageVector = if (uiState.currentTab == 2) Icons.Filled.Map else Icons.Outlined.Map,
+                                        contentDescription = "Google Maps"
+                                    )
+                                },
+                                label = { Text("Google Maps") },
+                                modifier = Modifier.testTag("nav_tab_google_maps")
+                            )
+
+                            NavigationBarItem(
+                                selected = uiState.currentTab == 3,
+                                onClick = { viewModel.setTab(3) },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (uiState.currentTab == 3) Icons.Filled.TableChart else Icons.Outlined.TableChart,
                                         contentDescription = "KM-DF"
                                     )
                                 },
@@ -162,32 +198,16 @@ class MainActivity : ComponentActivity() {
                             )
 
                             NavigationBarItem(
-                                selected = uiState.currentTab == 3,
-                                onClick = { viewModel.setTab(3) },
+                                selected = uiState.currentTab == 4,
+                                onClick = { viewModel.setTab(4) },
                                 icon = {
                                     Icon(
-                                        imageVector = if (uiState.currentTab == 3) Icons.Filled.PinDrop else Icons.Outlined.PinDrop,
+                                        imageVector = if (uiState.currentTab == 4) Icons.Filled.PinDrop else Icons.Outlined.PinDrop,
                                         contentDescription = "Reversa"
                                     )
                                 },
                                 label = { Text("Reversa") },
                                 modifier = Modifier.testTag("nav_tab_reverse")
-                            )
-
-                            NavigationBarItem(
-                                selected = uiState.currentTab == 4,
-                                onClick = {
-                                    viewModel.setTab(4)
-                                    viewModel.loadWmsCapabilities()
-                                },
-                                icon = {
-                                    Icon(
-                                        imageVector = if (uiState.currentTab == 4) Icons.Filled.Language else Icons.Outlined.Language,
-                                        contentDescription = "WMS Info"
-                                    )
-                                },
-                                label = { Text("WMS Info") },
-                                modifier = Modifier.testTag("nav_tab_wms")
                             )
                         }
                     }
@@ -207,7 +227,7 @@ class MainActivity : ComponentActivity() {
                                 onSelectLot = viewModel::selectLot,
                                 onViewOnMap = { lot ->
                                     viewModel.selectLot(lot)
-                                    viewModel.setTab(1)
+                                    viewModel.setTab(2) // Jump to Google Maps to view lot!
                                 },
                                 onToggleFavorite = viewModel::toggleFavorite
                             )
@@ -224,18 +244,29 @@ class MainActivity : ComponentActivity() {
                                 onPan = viewModel::pan
                             )
 
-                            2 -> KmdfTableScreen(
+                            2 -> GoogleMapsScreen(
+                                uiState = uiState,
+                                onSelectLot = viewModel::selectLot,
+                                onSelectKmdfRecord = viewModel::selectKmdfRecord,
+                                onMapClickCoordinate = viewModel::onMapTappedCoordinate,
+                                onReverseGeocodeKm = viewModel::reverseGeocodeKmdfRecord
+                            )
+
+                            3 -> KmdfTableScreen(
                                 uiState = uiState,
                                 onQueryChanged = viewModel::onKmdfSearchQueryChanged,
                                 onRodoviaSelected = viewModel::onRodoviaFilterSelected,
                                 onCustomUrlChanged = viewModel::onCustomKmzUrlChanged,
                                 onDownloadKmz = viewModel::loadKmzFromUrl,
                                 onLoadFileUri = viewModel::loadKmzFromUri,
-                                onViewOnMap = viewModel::viewKmdfOnMap,
+                                onViewOnMap = { record ->
+                                    viewModel.viewKmdfOnMap(record)
+                                    viewModel.setTab(2) // Open Google Maps directly with KMDF marker!
+                                },
                                 onReverseGeocodeKm = viewModel::reverseGeocodeKmdfRecord
                             )
 
-                            3 -> ReverseGeocodeScreen(
+                            4 -> ReverseGeocodeScreen(
                                 uiState = uiState,
                                 onLatChanged = viewModel::onReverseLatChanged,
                                 onLonChanged = viewModel::onReverseLonChanged,
@@ -243,22 +274,22 @@ class MainActivity : ComponentActivity() {
                                 onSelectLot = viewModel::selectLot,
                                 onViewOnMap = { lot ->
                                     viewModel.selectLot(lot)
-                                    viewModel.setTab(1)
+                                    viewModel.setTab(2)
                                 },
                                 onToggleFavorite = viewModel::toggleFavorite
                             )
 
-                            4 -> WmsInfoScreen(
+                            5 -> WmsInfoScreen(
                                 uiState = uiState,
                                 onRefreshCapabilities = viewModel::loadWmsCapabilities
                             )
 
-                            5 -> FavoritesScreen(
+                            6 -> FavoritesScreen(
                                 uiState = uiState,
                                 onSelectLot = viewModel::selectLot,
                                 onViewOnMap = { lot ->
                                     viewModel.selectLot(lot)
-                                    viewModel.setTab(1)
+                                    viewModel.setTab(2)
                                 },
                                 onToggleFavorite = viewModel::toggleFavorite,
                                 onSearchSuggestion = { query ->
@@ -277,7 +308,7 @@ class MainActivity : ComponentActivity() {
                             isFavorite = viewModel.isFavorite(lot),
                             onDismiss = viewModel::clearSelectedLot,
                             onViewOnMap = {
-                                viewModel.setTab(1)
+                                viewModel.setTab(2) // View on Google Maps!
                                 viewModel.clearSelectedLot()
                             },
                             onToggleFavorite = { viewModel.toggleFavorite(lot) },
