@@ -1,0 +1,6 @@
+{
+  "name": "GeoDF",
+  "description": "Aplicativo de geocodificação e consulta ao Cadastro Territorial do Distrito Federal via IDE DF e Geoportal WMS / MapServer.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
