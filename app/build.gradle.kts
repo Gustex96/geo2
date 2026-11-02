@@ -1,4 +1,6 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.util.Properties
+import java.io.FileInputStream
 
 plugins {
   alias(libs.plugins.android.application)
@@ -20,7 +22,14 @@ android {
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-    manifestPlaceholders["MAPS_API_KEY"] = "DEFAULT_KEY"
+    val envProp = Properties()
+    val envF = rootProject.file(".env")
+    val envExF = rootProject.file(".env.example")
+    val targetF = if (envF.exists()) envF else envExF
+    if (targetF.exists()) {
+      FileInputStream(targetF).use { envProp.load(it) }
+    }
+    manifestPlaceholders["MAPS_API_KEY"] = envProp.getProperty("MAPS_API_KEY", "DEFAULT_KEY")
   }
 
   // Do not remove or modify these signingConfigs. They are necessary for building, installing,
