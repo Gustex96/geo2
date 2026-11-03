@@ -14,16 +14,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.PinDrop
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.outlined.BookmarkBorder
-import androidx.compose.material.icons.outlined.Explore
-import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.PinDrop
 import androidx.compose.material.icons.outlined.Public
@@ -46,17 +44,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import com.example.ui.screens.DigitalCartographyScreen
 import com.example.ui.screens.FavoritesScreen
 import com.example.ui.screens.GoogleMapsScreen
 import com.example.ui.screens.KmdfTableScreen
 import com.example.ui.screens.LotDetailSheet
-import com.example.ui.screens.MapScreen
 import com.example.ui.screens.ReverseGeocodeScreen
 import com.example.ui.screens.SearchScreen
-import com.example.ui.screens.WmsInfoScreen
 import com.example.ui.theme.CadastreYellow
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.GeocodingViewModel
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GoogleApiAvailability
+import com.google.android.gms.maps.MapsInitializer
 
 class MainActivity : ComponentActivity() {
     private val viewModel: GeocodingViewModel by viewModels()
@@ -64,8 +64,19 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        coil.Coil.setImageLoader(com.example.data.network.NetworkClient.createImageLoader(applicationContext))
         enableEdgeToEdge()
+
+        // Initialize Google Maps SDK renderer safely
+        val playServicesAvailable = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(this)
+        if (playServicesAvailable == ConnectionResult.SUCCESS) {
+            try {
+                MapsInitializer.initialize(applicationContext, MapsInitializer.Renderer.LATEST) { }
+            } catch (e: Exception) {
+                try {
+                    MapsInitializer.initialize(applicationContext, MapsInitializer.Renderer.LEGACY) { }
+                } catch (_: Exception) { }
+            }
+        }
 
         setContent {
             MyApplicationTheme {
@@ -88,13 +99,12 @@ class MainActivity : ComponentActivity() {
                             title = {
                                 Text(
                                     text = when (uiState.currentTab) {
-                                        0 -> "GeoDF • Geocodificação"
-                                        1 -> "Mapa WMS • IDE DF"
-                                        2 -> "Google Maps SDK"
+                                        0 -> "GeoDF • Residências Identificadas"
+                                        1 -> "Cartografia Digital • DF"
+                                        2 -> "Google Maps • Distrito Federal"
                                         3 -> "Tabela KM-DF (KMZ)"
                                         4 -> "Geocodificação Reversa"
-                                        5 -> "Metadados OGC WMS"
-                                        6 -> "Lotes Salvos"
+                                        5 -> "Imóveis Salvos"
                                         else -> "GeoDF"
                                     },
                                     style = MaterialTheme.typography.titleMedium,
@@ -104,32 +114,14 @@ class MainActivity : ComponentActivity() {
                             actions = {
                                 IconButton(
                                     onClick = {
-                                        if (uiState.currentTab == 5) {
-                                            viewModel.setTab(0)
-                                        } else {
-                                            viewModel.setTab(5)
-                                            viewModel.loadWmsCapabilities()
-                                        }
-                                    },
-                                    modifier = Modifier.testTag("top_action_wms_info")
-                                ) {
-                                    Icon(
-                                        imageVector = if (uiState.currentTab == 5) Icons.Filled.Info else Icons.Outlined.Info,
-                                        contentDescription = "Metadados WMS",
-                                        tint = if (uiState.currentTab == 5) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-
-                                IconButton(
-                                    onClick = {
-                                        if (uiState.currentTab == 6) viewModel.setTab(0) else viewModel.setTab(6)
+                                        if (uiState.currentTab == 5) viewModel.setTab(0) else viewModel.setTab(5)
                                     },
                                     modifier = Modifier.testTag("top_action_favorites")
                                 ) {
                                     Icon(
-                                        imageVector = if (uiState.currentTab == 6) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
-                                        contentDescription = "Lotes Salvos",
-                                        tint = if (uiState.currentTab == 6 || uiState.favorites.isNotEmpty()) CadastreYellow else MaterialTheme.colorScheme.onSurfaceVariant
+                                        imageVector = if (uiState.currentTab == 5) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
+                                        contentDescription = "Imóveis Salvos",
+                                        tint = if (uiState.currentTab == 5 || uiState.favorites.isNotEmpty()) CadastreYellow else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             },
@@ -163,12 +155,12 @@ class MainActivity : ComponentActivity() {
                                 onClick = { viewModel.setTab(1) },
                                 icon = {
                                     Icon(
-                                        imageVector = if (uiState.currentTab == 1) Icons.Filled.Public else Icons.Outlined.Public,
-                                        contentDescription = "WMS DF"
+                                        imageVector = if (uiState.currentTab == 1) Icons.Filled.Layers else Icons.Outlined.Layers,
+                                        contentDescription = "Cartografia"
                                     )
                                 },
-                                label = { Text("WMS DF") },
-                                modifier = Modifier.testTag("nav_tab_wms_map")
+                                label = { Text("Cartografia") },
+                                modifier = Modifier.testTag("nav_tab_cartography")
                             )
 
                             NavigationBarItem(
@@ -227,21 +219,16 @@ class MainActivity : ComponentActivity() {
                                 onSelectLot = viewModel::selectLot,
                                 onViewOnMap = { lot ->
                                     viewModel.selectLot(lot)
-                                    viewModel.setTab(2) // Jump to Google Maps to view lot!
+                                    viewModel.setTab(1) // Open Cartografia Digital!
                                 },
                                 onToggleFavorite = viewModel::toggleFavorite
                             )
 
-                            1 -> MapScreen(
+                            1 -> DigitalCartographyScreen(
                                 uiState = uiState,
-                                onZoomIn = viewModel::zoomIn,
-                                onZoomOut = viewModel::zoomOut,
-                                onRecenterBrasilia = viewModel::recenterOnBrasilia,
-                                onToggleMapEngine = viewModel::toggleMapEngine,
-                                onToggleLayer = viewModel::toggleLayer,
-                                onMapTapped = viewModel::onMapTappedCoordinate,
                                 onSelectLot = viewModel::selectLot,
-                                onPan = viewModel::pan
+                                onMapCoordinateTapped = viewModel::onMapTappedCoordinate,
+                                onSelectKmdfRecord = viewModel::selectKmdfRecord
                             )
 
                             2 -> GoogleMapsScreen(
@@ -261,7 +248,7 @@ class MainActivity : ComponentActivity() {
                                 onLoadFileUri = viewModel::loadKmzFromUri,
                                 onViewOnMap = { record ->
                                     viewModel.viewKmdfOnMap(record)
-                                    viewModel.setTab(2) // Open Google Maps directly with KMDF marker!
+                                    viewModel.setTab(1) // Open in Digital Cartography
                                 },
                                 onReverseGeocodeKm = viewModel::reverseGeocodeKmdfRecord
                             )
@@ -274,22 +261,17 @@ class MainActivity : ComponentActivity() {
                                 onSelectLot = viewModel::selectLot,
                                 onViewOnMap = { lot ->
                                     viewModel.selectLot(lot)
-                                    viewModel.setTab(2)
+                                    viewModel.setTab(1)
                                 },
                                 onToggleFavorite = viewModel::toggleFavorite
                             )
 
-                            5 -> WmsInfoScreen(
-                                uiState = uiState,
-                                onRefreshCapabilities = viewModel::loadWmsCapabilities
-                            )
-
-                            6 -> FavoritesScreen(
+                            5 -> FavoritesScreen(
                                 uiState = uiState,
                                 onSelectLot = viewModel::selectLot,
                                 onViewOnMap = { lot ->
                                     viewModel.selectLot(lot)
-                                    viewModel.setTab(2)
+                                    viewModel.setTab(1)
                                 },
                                 onToggleFavorite = viewModel::toggleFavorite,
                                 onSearchSuggestion = { query ->
@@ -308,7 +290,7 @@ class MainActivity : ComponentActivity() {
                             isFavorite = viewModel.isFavorite(lot),
                             onDismiss = viewModel::clearSelectedLot,
                             onViewOnMap = {
-                                viewModel.setTab(2) // View on Google Maps!
+                                viewModel.setTab(1) // View in Digital Cartography!
                                 viewModel.clearSelectedLot()
                             },
                             onToggleFavorite = { viewModel.toggleFavorite(lot) },

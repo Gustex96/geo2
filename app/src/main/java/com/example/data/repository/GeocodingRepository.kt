@@ -1,8 +1,11 @@
 package com.example.data.repository
 
+import android.content.Context
+import com.example.data.local.ResidencesDatabaseHelper
 import com.example.data.model.CadastreLot
 import com.example.data.model.WmsLayerInfo
 import com.example.data.model.WmsServiceInfo
+import com.example.data.network.NetworkClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -15,11 +18,11 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
-import com.example.data.network.NetworkClient
 import kotlin.math.sqrt
 
 class GeocodingRepository(
-    private val client: OkHttpClient = NetworkClient.okHttpClient
+    private val client: OkHttpClient = NetworkClient.okHttpClient,
+    private val context: Context? = null
 ) {
     companion object {
         const val WMS_SERVER_URL = "https://geoportal.ide.df.gov.br/server/services/Publico/cadastro_territorial_geoportal/MapServer/WMSServer"
@@ -36,6 +39,14 @@ class GeocodingRepository(
             val trimmed = query.trim()
             if (trimmed.isEmpty() && raFilter.isNullOrBlank()) {
                 return@withContext Result.success(emptyList())
+            }
+
+            // 1. Search local residences dataset (from dadoscasas.xlsx / dadoscsv)
+            if (context != null) {
+                val localResults = ResidencesDatabaseHelper.getInstance(context).search(trimmed, raFilter, limit)
+                if (localResults.isNotEmpty()) {
+                    return@withContext Result.success(localResults)
+                }
             }
 
             // Build SQL where clause for ArcGIS query
@@ -110,6 +121,14 @@ class GeocodingRepository(
 
     suspend fun reverseGeocode(lat: Double, lon: Double): Result<List<CadastreLot>> = withContext(Dispatchers.IO) {
         try {
+            // 1. Search local residences dataset (from dadoscasas.xlsx / dadoscsv)
+            if (context != null) {
+                val localNearest = ResidencesDatabaseHelper.getInstance(context).findNearest(lat, lon, limit = 10)
+                if (localNearest.isNotEmpty()) {
+                    return@withContext Result.success(localNearest)
+                }
+            }
+
             // First try a tight envelope ~60m around point
             val deltaSmall = 0.0006
             var lots = queryEnvelope(

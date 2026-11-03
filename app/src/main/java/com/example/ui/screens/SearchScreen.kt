@@ -80,7 +80,7 @@ fun SearchScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("search_input_field"),
-            placeholder = { Text("Pesquisar endereço, quadra, CEP ou CIPU...") },
+            placeholder = { Text("Pesquisar residência, CIU, endereço, CEP...") },
             leadingIcon = {
                 Icon(
                     Icons.Default.Search,

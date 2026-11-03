@@ -99,4 +99,27 @@ class ExampleUnitTest {
         )
         assertEquals("DF-002 KM 7", recInteger.displayTitle)
     }
+
+    @Test
+    fun testResidenceDataFormatting() {
+        val residence = CadastreLot(
+            objectId = 1L,
+            ciu = "0121IV4B0004",
+            setor = "SHTN",
+            quadra = "TRECHO 1",
+            conjunto = "POLO 3",
+            lote = "LT 8",
+            endUsual = "SHTN TRECHO 1 POLO 3 LT 8",
+            ra = "PLANO PILOTO",
+            cep = "70800210",
+            areaProjeto = 525.0,
+            latitude = -15.7863,
+            longitude = -47.8335
+        )
+        assertEquals("SHTN TRECHO 1 POLO 3 LT 8", residence.displayAddress)
+        assertEquals("70800-210", residence.formattedCep)
+        assertTrue(residence.formattedArea.contains("525"))
+        assertEquals("PLANO PILOTO • CEP 70800-210", residence.displaySubtitle)
+    }
 }
+

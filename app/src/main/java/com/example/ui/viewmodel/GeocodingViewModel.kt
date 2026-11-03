@@ -84,7 +84,7 @@ data class GeocodingUiState(
 }
 
 class GeocodingViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository = GeocodingRepository()
+    private val repository = GeocodingRepository(context = application)
     private val kmdfRepository = KmdfRepository()
     private val localStore = LocalStore(application)
 
