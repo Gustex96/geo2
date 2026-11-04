@@ -80,7 +80,7 @@ fun SearchScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("search_input_field"),
-            placeholder = { Text("Pesquisar residência, CIU, endereço, CEP...") },
+            placeholder = { Text("Pesquisar ct_CIU, CEP, Quadra, Casa, Endereço...") },
             leadingIcon = {
                 Icon(
                     Icons.Default.Search,
@@ -186,13 +186,13 @@ fun SearchScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "${uiState.searchResults.size} lotes cadastrais encontrados",
+                    text = "${uiState.searchResults.size} residências / CEPs encontrados",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.primary
                 )
                 Text(
-                    text = "Fonte: IDE DF Geoportal",
+                    text = "Base: 28.923 CEPs e Residências DF",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline
                 )

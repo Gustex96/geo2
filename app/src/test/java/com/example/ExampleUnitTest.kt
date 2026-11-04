@@ -120,6 +120,9 @@ class ExampleUnitTest {
         assertEquals("70800-210", residence.formattedCep)
         assertTrue(residence.formattedArea.contains("525"))
         assertEquals("PLANO PILOTO • CEP 70800-210", residence.displaySubtitle)
+        assertEquals("ct_CIU: 0121IV4B0004", residence.displayCiu)
+        assertEquals("SHTN, TRECHO 1", residence.quadraDisplay)
+        assertEquals("LT 8, POLO 3", residence.numeroCasaDisplay)
     }
 }
 

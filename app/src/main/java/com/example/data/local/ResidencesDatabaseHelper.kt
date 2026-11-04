@@ -7,7 +7,6 @@ import android.util.Log
 import com.example.data.model.CadastreLot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -22,8 +21,10 @@ class ResidencesDatabaseHelper(private val context: Context) : SQLiteOpenHelper(
 ) {
     companion object {
         const val DATABASE_NAME = "residences.db"
-        const val DATABASE_VERSION = 1
+        const val DATABASE_VERSION = 2
         private const val TAG = "ResidencesDbHelper"
+        private const val PREFS_NAME = "residences_db_prefs"
+        private const val KEY_INSTALLED_VERSION = "installed_db_version"
 
         @Volatile
         private var instance: ResidencesDatabaseHelper? = null
@@ -40,15 +41,27 @@ class ResidencesDatabaseHelper(private val context: Context) : SQLiteOpenHelper(
 
     private fun ensureDatabaseCopied() {
         val dbPath = context.getDatabasePath(DATABASE_NAME)
-        if (!dbPath.exists()) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val installedVersion = prefs.getInt(KEY_INSTALLED_VERSION, 0)
+
+        if (!dbPath.exists() || installedVersion < DATABASE_VERSION) {
             dbPath.parentFile?.mkdirs()
             try {
+                if (dbPath.exists()) {
+                    dbPath.delete()
+                }
                 context.assets.open(DATABASE_NAME).use { input ->
                     FileOutputStream(dbPath).use { output ->
-                        input.copyTo(output)
+                        val buffer = ByteArray(64 * 1024)
+                        var read: Int
+                        while (input.read(buffer).also { read = it } != -1) {
+                            output.write(buffer, 0, read)
+                        }
+                        output.flush()
                     }
                 }
-                Log.i(TAG, "Database successfully copied from assets to ${dbPath.absolutePath}")
+                prefs.edit().putInt(KEY_INSTALLED_VERSION, DATABASE_VERSION).apply()
+                Log.i(TAG, "Full 28,923 CEP and residence database copied successfully to ${dbPath.absolutePath}")
             } catch (e: Exception) {
                 Log.e(TAG, "Error copying database from assets", e)
             }
@@ -56,115 +69,232 @@ class ResidencesDatabaseHelper(private val context: Context) : SQLiteOpenHelper(
     }
 
     override fun onCreate(db: SQLiteDatabase) {
-        // Database is copied pre-populated from assets
+        // Pre-populated from assets
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // No upgrade needed yet
+        ensureDatabaseCopied()
     }
 
     suspend fun search(
         query: String,
         raFilter: String? = null,
-        limit: Int = 40
+        limit: Int = 50
     ): List<CadastreLot> = withContext(Dispatchers.IO) {
         ensureDatabaseCopied()
         val results = mutableListOf<CadastreLot>()
         val db = readableDatabase ?: return@withContext emptyList()
 
         val trimmed = query.trim()
-        val sanitized = trimmed.replace("'", "''")
+        val cleanDigits = trimmed.filter { it.isDigit() }
+        val isCepSearch = cleanDigits.length in 5..8
 
-        val whereClauses = mutableListOf<String>()
-        val args = mutableListOf<String>()
+        // 1. If searching by CEP, query 100% of CEP Directory first
+        if (isCepSearch) {
+            val cepPattern = "%$cleanDigits%"
+            val cepSql = buildString {
+                append("SELECT cep, endereco, setor, quadra, ra, ciu, latitude, longitude, total_unidades ")
+                append("FROM cep_directory WHERE cep LIKE ? ")
+                if (!raFilter.isNullOrBlank() && raFilter != "TODAS") {
+                    append("AND UPPER(ra) = '${raFilter.uppercase().replace("'", "''")}' ")
+                }
+                append("LIMIT $limit")
+            }
 
-        if (sanitized.isNotBlank()) {
-            val isNumeric = sanitized.all { it.isDigit() }
-            if (isNumeric && sanitized.length in 5..8) {
-                whereClauses.add("(cep LIKE ? OR ciu LIKE ?)")
-                args.add("%$sanitized%")
-                args.add("%$sanitized%")
-            } else {
-                whereClauses.add("(endereco LIKE ? OR ciu LIKE ? OR setor LIKE ? OR quadra LIKE ? OR lote LIKE ? OR cep LIKE ?)")
-                val pattern = "%$sanitized%"
-                args.add(pattern)
-                args.add(pattern)
-                args.add(pattern)
-                args.add(pattern)
-                args.add(pattern)
-                args.add(pattern)
+            try {
+                db.rawQuery(cepSql, arrayOf(cepPattern)).use { cursor ->
+                    var virtualId = 1000000L
+                    while (cursor.moveToNext()) {
+                        val cepVal = cursor.getString(0) ?: ""
+                        val enderecoVal = cursor.getString(1) ?: ""
+                        val setorVal = cursor.getString(2) ?: ""
+                        val quadraVal = cursor.getString(3) ?: ""
+                        val raVal = cursor.getString(4) ?: ""
+                        val ciuVal = cursor.getString(5) ?: ""
+                        val latVal = cursor.getDouble(6)
+                        val lonVal = cursor.getDouble(7)
+                        val totalUnidades = cursor.getInt(8)
+
+                        results.add(
+                            CadastreLot(
+                                objectId = virtualId++,
+                                cipu = ciuVal,
+                                ciu = ciuVal,
+                                projeto = "Ocupações Identificadas (Base Completa)",
+                                setor = setorVal,
+                                quadra = quadraVal,
+                                conjunto = "",
+                                lote = "",
+                                endCartorial = enderecoVal,
+                                endUsual = enderecoVal,
+                                ra = raVal,
+                                cep = cepVal,
+                                situacao = "CEP Oficial DF ($totalUnidades residências vinculadas)",
+                                dataRegistro = "Base Oficial 28.923 CEPs",
+                                areaProjeto = 0.0,
+                                normaVigente = "CEP: $cepVal • $totalUnidades unidades identificadas",
+                                codigoParametro = "CIU: $ciuVal",
+                                uosParametro = "Residências Identificadas",
+                                uosCores = "#0288D1",
+                                latitude = latVal,
+                                longitude = lonVal
+                            )
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error querying cep_directory", e)
             }
         }
 
-        if (!raFilter.isNullOrBlank() && raFilter != "TODAS") {
-            whereClauses.add("UPPER(ra) = ?")
-            args.add(raFilter.uppercase())
-        }
+        // 2. Query individual residences table
+        val remainingLimit = limit - results.size
+        if (remainingLimit > 0) {
+            val sanitized = trimmed.replace("'", "''")
+            val whereClauses = mutableListOf<String>()
+            val args = mutableListOf<String>()
 
-        val whereSql = if (whereClauses.isNotEmpty()) {
-            "WHERE " + whereClauses.joinToString(" AND ")
-        } else {
-            ""
-        }
-
-        val sql = "SELECT id, ciu, endereco, setor, quadra, conjunto, lote, cep, ra, area_construida, area_terreno, perimetro, origem, latitude, longitude " +
-                "FROM residences $whereSql ORDER BY id ASC LIMIT $limit"
-
-        try {
-            db.rawQuery(sql, args.toTypedArray()).use { cursor ->
-                while (cursor.moveToNext()) {
-                    val id = cursor.getLong(0)
-                    val ciu = cursor.getString(1) ?: ""
-                    val endereco = cursor.getString(2) ?: ""
-                    val setor = cursor.getString(3) ?: ""
-                    val quadra = cursor.getString(4) ?: ""
-                    val conjunto = cursor.getString(5) ?: ""
-                    val lote = cursor.getString(6) ?: ""
-                    val cep = cursor.getString(7) ?: ""
-                    val ra = cursor.getString(8) ?: ""
-                    val areaConstruida = cursor.getDouble(9)
-                    val areaTerreno = cursor.getDouble(10)
-                    val perimetro = cursor.getDouble(11)
-                    val origem = cursor.getString(12) ?: ""
-                    val latitude = cursor.getDouble(13)
-                    val longitude = cursor.getDouble(14)
-
-                    results.add(
-                        CadastreLot(
-                            objectId = id,
-                            cipu = ciu,
-                            ciu = ciu,
-                            projeto = "Ocupações Identificadas",
-                            setor = setor,
-                            quadra = quadra,
-                            conjunto = conjunto,
-                            lote = lote,
-                            endCartorial = endereco,
-                            endUsual = endereco,
-                            ra = ra,
-                            cep = cep,
-                            situacao = "Regularizada / Identificada",
-                            dataRegistro = "Base Oficial DF",
-                            areaProjeto = if (areaTerreno > 0.0) areaTerreno else areaConstruida,
-                            normaVigente = if (areaConstruida > 0.0) "Área Construída: ${String.format(java.util.Locale.getDefault(), "%,.1f", areaConstruida)} m²" else "Origem: $origem",
-                            codigoParametro = "CIU: $ciu",
-                            uosParametro = if (perimetro > 0.0) "Perímetro: ${String.format(java.util.Locale.getDefault(), "%,.1f", perimetro)} m" else "Ocupação Residencial",
-                            uosCores = "#0288D1",
-                            faixaArea = if (areaConstruida > 0.0) "Área Constr: ${String.format(java.util.Locale.getDefault(), "%,.1f", areaConstruida)} m²" else "",
-                            normaAnterior = "",
-                            onalt = "",
-                            onaltNorma = "",
-                            onaltExcecao = "",
-                            planta = "",
-                            latitude = latitude,
-                            longitude = longitude,
-                            rings = emptyList()
-                        )
-                    )
+            if (sanitized.isNotBlank()) {
+                if (isCepSearch) {
+                    whereClauses.add("(cep LIKE ? OR ciu LIKE ?)")
+                    args.add("%$cleanDigits%")
+                    args.add("%$sanitized%")
+                } else {
+                    whereClauses.add("(endereco LIKE ? OR ciu LIKE ? OR setor LIKE ? OR quadra LIKE ? OR lote LIKE ? OR cep LIKE ?)")
+                    val pattern = "%$sanitized%"
+                    args.add(pattern)
+                    args.add(pattern)
+                    args.add(pattern)
+                    args.add(pattern)
+                    args.add(pattern)
+                    args.add(pattern)
                 }
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error querying residences", e)
+
+            if (!raFilter.isNullOrBlank() && raFilter != "TODAS") {
+                whereClauses.add("UPPER(ra) = ?")
+                args.add(raFilter.uppercase())
+            }
+
+            val whereSql = if (whereClauses.isNotEmpty()) {
+                "WHERE " + whereClauses.joinToString(" AND ")
+            } else {
+                ""
+            }
+
+            val sql = "SELECT id, ciu, endereco, setor, quadra, conjunto, lote, cep, ra, area_construida, area_terreno, latitude, longitude " +
+                    "FROM residences $whereSql ORDER BY id ASC LIMIT $remainingLimit"
+
+            try {
+                db.rawQuery(sql, args.toTypedArray()).use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getLong(0)
+                        val ciu = cursor.getString(1) ?: ""
+                        val endereco = cursor.getString(2) ?: ""
+                        val setor = cursor.getString(3) ?: ""
+                        val quadra = cursor.getString(4) ?: ""
+                        val conjunto = cursor.getString(5) ?: ""
+                        val lote = cursor.getString(6) ?: ""
+                        val cep = cursor.getString(7) ?: ""
+                        val ra = cursor.getString(8) ?: ""
+                        val areaConstruida = cursor.getDouble(9)
+                        val areaTerreno = cursor.getDouble(10)
+                        val latitude = cursor.getDouble(11)
+                        val longitude = cursor.getDouble(12)
+
+                        // Avoid duplicate if already added by exact CEP
+                        if (results.none { it.ciu == ciu && it.ciu.isNotBlank() }) {
+                            results.add(
+                                CadastreLot(
+                                    objectId = id,
+                                    cipu = ciu,
+                                    ciu = ciu,
+                                    projeto = "Ocupações Identificadas",
+                                    setor = setor,
+                                    quadra = quadra,
+                                    conjunto = conjunto,
+                                    lote = lote,
+                                    endCartorial = endereco,
+                                    endUsual = endereco,
+                                    ra = ra,
+                                    cep = cep,
+                                    situacao = "Identificada / Cadastrada",
+                                    dataRegistro = "Base Oficial DF",
+                                    areaProjeto = if (areaTerreno > 0.0) areaTerreno else areaConstruida,
+                                    normaVigente = if (areaConstruida > 0.0) "Área Construída: ${String.format(java.util.Locale.getDefault(), "%,.1f", areaConstruida)} m²" else "Lote Residencial",
+                                    codigoParametro = "CIU: $ciu",
+                                    uosParametro = "Ocupação Residencial",
+                                    uosCores = "#0288D1",
+                                    latitude = latitude,
+                                    longitude = longitude
+                                )
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error querying residences", e)
+            }
+        }
+
+        // 3. If text query and still have space, check if query matches address in cep_directory
+        if (results.size < 5 && !isCepSearch && trimmed.length >= 3) {
+            val endPattern = "%${trimmed.replace("'", "''")}%"
+            val cepSql = buildString {
+                append("SELECT cep, endereco, setor, quadra, ra, ciu, latitude, longitude, total_unidades ")
+                append("FROM cep_directory WHERE (endereco LIKE ? OR setor LIKE ? OR quadra LIKE ?) ")
+                if (!raFilter.isNullOrBlank() && raFilter != "TODAS") {
+                    append("AND UPPER(ra) = '${raFilter.uppercase().replace("'", "''")}' ")
+                }
+                append("LIMIT 20")
+            }
+
+            try {
+                db.rawQuery(cepSql, arrayOf(endPattern, endPattern, endPattern)).use { cursor ->
+                    var vId = 2000000L
+                    while (cursor.moveToNext()) {
+                        val cepVal = cursor.getString(0) ?: ""
+                        val enderecoVal = cursor.getString(1) ?: ""
+                        val setorVal = cursor.getString(2) ?: ""
+                        val quadraVal = cursor.getString(3) ?: ""
+                        val raVal = cursor.getString(4) ?: ""
+                        val ciuVal = cursor.getString(5) ?: ""
+                        val latVal = cursor.getDouble(6)
+                        val lonVal = cursor.getDouble(7)
+                        val totalUnidades = cursor.getInt(8)
+
+                        if (results.none { it.cep == cepVal && it.endUsual == enderecoVal }) {
+                            results.add(
+                                CadastreLot(
+                                    objectId = vId++,
+                                    cipu = ciuVal,
+                                    ciu = ciuVal,
+                                    projeto = "Ocupações Identificadas (Base Completa)",
+                                    setor = setorVal,
+                                    quadra = quadraVal,
+                                    conjunto = "",
+                                    lote = "",
+                                    endCartorial = enderecoVal,
+                                    endUsual = enderecoVal,
+                                    ra = raVal,
+                                    cep = cepVal,
+                                    situacao = "CEP Oficial DF ($totalUnidades residências)",
+                                    dataRegistro = "Base Oficial 28.923 CEPs",
+                                    areaProjeto = 0.0,
+                                    normaVigente = "CEP: $cepVal • $totalUnidades unidades identificadas",
+                                    codigoParametro = "CIU: $ciuVal",
+                                    uosParametro = "Residências Identificadas",
+                                    uosCores = "#0288D1",
+                                    latitude = latVal,
+                                    longitude = lonVal
+                                )
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error querying cep_directory for address", e)
+            }
         }
 
         results
@@ -179,14 +309,13 @@ class ResidencesDatabaseHelper(private val context: Context) : SQLiteOpenHelper(
         val allLots = mutableListOf<CadastreLot>()
         val db = readableDatabase ?: return@withContext emptyList()
 
-        // Bounding box ~5km around coordinate
         val delta = 0.05
         val minLat = targetLat - delta
         val maxLat = targetLat + delta
         val minLon = targetLon - delta
         val maxLon = targetLon + delta
 
-        val sql = "SELECT id, ciu, endereco, setor, quadra, conjunto, lote, cep, ra, area_construida, area_terreno, perimetro, origem, latitude, longitude " +
+        val sql = "SELECT id, ciu, endereco, setor, quadra, conjunto, lote, cep, ra, area_construida, area_terreno, latitude, longitude " +
                 "FROM residences WHERE latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ? LIMIT 300"
 
         try {
@@ -206,10 +335,8 @@ class ResidencesDatabaseHelper(private val context: Context) : SQLiteOpenHelper(
                     val ra = cursor.getString(8) ?: ""
                     val areaConstruida = cursor.getDouble(9)
                     val areaTerreno = cursor.getDouble(10)
-                    val perimetro = cursor.getDouble(11)
-                    val origem = cursor.getString(12) ?: ""
-                    val latitude = cursor.getDouble(13)
-                    val longitude = cursor.getDouble(14)
+                    val latitude = cursor.getDouble(11)
+                    val longitude = cursor.getDouble(12)
 
                     allLots.add(
                         CadastreLot(
@@ -242,7 +369,6 @@ class ResidencesDatabaseHelper(private val context: Context) : SQLiteOpenHelper(
             Log.e(TAG, "Error in nearest query", e)
         }
 
-        // Sort by Haversine distance
         allLots.sortedBy { lot ->
             haversine(targetLat, targetLon, lot.latitude, lot.longitude)
         }.take(limit)

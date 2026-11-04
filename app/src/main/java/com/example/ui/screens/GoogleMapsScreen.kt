@@ -569,13 +569,13 @@ fun GoogleMapsScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            if (lot.ra.isNotBlank()) {
+                            if (lot.ciu.isNotBlank()) {
                                 Surface(
                                     color = MaterialTheme.colorScheme.primaryContainer,
                                     shape = RoundedCornerShape(4.dp)
                                 ) {
                                     Text(
-                                        text = lot.ra,
+                                        text = "ct_CIU: ${lot.ciu}",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -583,11 +583,20 @@ fun GoogleMapsScreen(
                                     )
                                 }
                             }
-                            Text(
-                                text = "Residência Identificada",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
+                            if (lot.ra.isNotBlank()) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {
+                                    Text(
+                                        text = lot.ra,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                }
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(4.dp))
@@ -599,9 +608,11 @@ fun GoogleMapsScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "${lot.formattedArea} • ${lot.formattedDecimalCoords}",
+                            text = "Quadra: ${lot.quadraDisplay} • Casa: ${lot.numeroCasaDisplay} • CEP: ${lot.formattedCep}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 

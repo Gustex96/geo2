@@ -36,8 +36,27 @@ data class CadastreLot(
         get() = when {
             endUsual.isNotBlank() && endUsual != "Null" -> endUsual
             endCartorial.isNotBlank() && endCartorial != "Null" -> endCartorial
-            quadra.isNotBlank() && lote.isNotBlank() -> "$setor $quadra Lote $lote"
-            else -> "Lote Cadastral #$objectId"
+            quadra.isNotBlank() && lote.isNotBlank() -> "$setor $quadra Lote $lote".trim()
+            else -> "Residência $ciu"
+        }
+
+    val displayCiu: String
+        get() = if (ciu.isNotBlank()) "ct_CIU: $ciu" else "CIU não informado"
+
+    val quadraDisplay: String
+        get() = when {
+            quadra.isNotBlank() && setor.isNotBlank() -> "$setor, $quadra"
+            quadra.isNotBlank() -> quadra
+            setor.isNotBlank() -> setor
+            else -> "Não informada"
+        }
+
+    val numeroCasaDisplay: String
+        get() = when {
+            lote.isNotBlank() && conjunto.isNotBlank() -> "$lote, $conjunto"
+            lote.isNotBlank() -> lote
+            conjunto.isNotBlank() -> conjunto
+            else -> "Não informado"
         }
 
     val displaySubtitle: String
