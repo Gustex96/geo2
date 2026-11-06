@@ -23,7 +23,7 @@ class ResidencesDatabaseHelper(private val context: Context) : SQLiteOpenHelper(
     companion object {
         const val DATABASE_NAME = "residences.db"
         const val GZ_ASSET_NAME = "residences.db.gz"
-        const val DATABASE_VERSION = 3
+        const val DATABASE_VERSION = 4
         private const val TAG = "ResidencesDbHelper"
         private const val PREFS_NAME = "residences_db_prefs"
         private const val KEY_INSTALLED_VERSION = "installed_db_version"
@@ -41,12 +41,26 @@ class ResidencesDatabaseHelper(private val context: Context) : SQLiteOpenHelper(
         }
     }
 
+    private fun isDatabaseValid(dbPath: java.io.File): Boolean {
+        if (!dbPath.exists() || dbPath.length() < 1000) return false
+        return try {
+            SQLiteDatabase.openDatabase(dbPath.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+                val cursor = db.rawQuery("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='residences'", null)
+                cursor.use {
+                    if (it.moveToFirst()) it.getInt(0) > 0 else false
+                }
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private fun ensureDatabaseCopied() {
         val dbPath = context.getDatabasePath(DATABASE_NAME)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val installedVersion = prefs.getInt(KEY_INSTALLED_VERSION, 0)
 
-        if (!dbPath.exists() || installedVersion < DATABASE_VERSION) {
+        if (!dbPath.exists() || installedVersion < DATABASE_VERSION || !isDatabaseValid(dbPath)) {
             dbPath.parentFile?.mkdirs()
             try {
                 if (dbPath.exists()) {
