@@ -59,6 +59,12 @@ data class CadastreLot(
             else -> "Não informado"
         }
 
+    val loteNumberForSort: Int
+        get() {
+            val digits = lote.filter { it.isDigit() }
+            return digits.toIntOrNull() ?: Int.MAX_VALUE
+        }
+
     val displaySubtitle: String
         get() = buildString {
             if (ra.isNotBlank() && ra != "Null") append(ra.uppercase())

@@ -127,9 +127,9 @@ fun GoogleMapsScreen(
         }
     }
 
-    // Default to INTERACTIVE_WEB on emulators without Play Services so map ALWAYS displays!
+    // Default to INTERACTIVE_WEB so the map ALWAYS loads without Play Services / Google Cloud SHA-1 authorization restrictions!
     var mapEngineMode by remember {
-        mutableStateOf(if (hasPlayServices) GoogleMapMode.NATIVE_SDK else GoogleMapMode.INTERACTIVE_WEB)
+        mutableStateOf(GoogleMapMode.INTERACTIVE_WEB)
     }
 
     val isApiKeyConfigured = BuildConfig.MAPS_API_KEY.isNotBlank() && BuildConfig.MAPS_API_KEY != "DEFAULT_KEY"
@@ -141,6 +141,7 @@ fun GoogleMapsScreen(
     }
 
     var mapType by remember { mutableStateOf(MapType.NORMAL) }
+    var currentWebLayer by remember { mutableStateOf("streets") }
     var showKmdfMarkers by remember { mutableStateOf(true) }
     var showCadastreLots by remember { mutableStateOf(true) }
     var showDiagnostics by remember { mutableStateOf(false) }
@@ -448,6 +449,78 @@ fun GoogleMapsScreen(
                         }
                     }
 
+                    // If Native SDK is selected, display authorization assistant banner
+                    if (mapEngineMode == GoogleMapMode.NATIVE_SDK) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.95f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.Info,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Modo SDK Nativo • Requisitos de Autorização",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                                Text(
+                                    text = "Caso a tela fique cinza com falha de autorização no console:\n" +
+                                            "1. Ative 'Maps SDK for Android' no Google Cloud Console.\n" +
+                                            "2. Registre as credenciais abaixo na sua chave de API:",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.padding(vertical = 4.dp)
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    FilledTonalButton(
+                                        onClick = {
+                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                            clipboard.setPrimaryClip(ClipData.newPlainText("Pacote", "com.aistudio.geodf.pxvrsm"))
+                                            Toast.makeText(context, "Pacote copiado!", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Copiar Pacote", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    FilledTonalButton(
+                                        onClick = {
+                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                            clipboard.setPrimaryClip(ClipData.newPlainText("SHA-1", "4E:05:7C:33:DE:F9:FC:6D:52:77:C3:14:46:68:8D:17:0F:97:B6:2C"))
+                                            Toast.makeText(context, "SHA-1 copiado!", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Copiar SHA-1", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Button(
+                                    onClick = { mapEngineMode = GoogleMapMode.INTERACTIVE_WEB },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Voltar ao Mapa Interativo (Garantido)")
+                                }
+                            }
+                        }
+                    }
+
                     // Expandable Diagnostic and Configuration Info
                     if (showDiagnostics) {
                         Spacer(modifier = Modifier.height(8.dp))
@@ -498,6 +571,29 @@ fun GoogleMapsScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            SmallFloatingActionButton(
+                onClick = {
+                    if (mapEngineMode == GoogleMapMode.NATIVE_SDK) {
+                        mapType = when (mapType) {
+                            MapType.NORMAL -> MapType.SATELLITE
+                            MapType.SATELLITE -> MapType.HYBRID
+                            else -> MapType.NORMAL
+                        }
+                    } else {
+                        currentWebLayer = when (currentWebLayer) {
+                            "streets" -> "satellite"
+                            "satellite" -> "hybrid"
+                            else -> "streets"
+                        }
+                        webViewInstance?.evaluateJavascript("setMapLayer('$currentWebLayer');", null)
+                    }
+                },
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface
+            ) {
+                Icon(Icons.Default.Layers, contentDescription = "Alternar Camadas")
+            }
+
             SmallFloatingActionButton(
                 onClick = {
                     if (mapEngineMode == GoogleMapMode.NATIVE_SDK) {
@@ -756,6 +852,19 @@ private fun generateGoogleMapsWebHtml(apiKey: String): String {
 
     function googleMapCenter(lat, lon, zoom) {
       map.flyTo([lat, lon], zoom, { duration: 1.2 });
+    }
+
+    function setMapLayer(type) {
+      if (map.hasLayer(googleRoads)) map.removeLayer(googleRoads);
+      if (map.hasLayer(googleHybrid)) map.removeLayer(googleHybrid);
+      if (map.hasLayer(esriSatellite)) map.removeLayer(esriSatellite);
+      if (type === 'satellite') {
+        esriSatellite.addTo(map);
+      } else if (type === 'hybrid') {
+        googleHybrid.addTo(map);
+      } else {
+        googleRoads.addTo(map);
+      }
     }
 
     function updateMapData(residences, kmdf) {

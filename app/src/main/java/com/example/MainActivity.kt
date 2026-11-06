@@ -39,9 +39,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import com.example.ui.screens.DigitalCartographyScreen
@@ -82,9 +84,16 @@ class MainActivity : ComponentActivity() {
             MyApplicationTheme {
                 val uiState by viewModel.uiState.collectAsState()
                 val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+                val focusManager = LocalFocusManager.current
+
+                // Clear any floating action mode / text selection when tab or modal state changes
+                LaunchedEffect(uiState.currentTab, uiState.selectedLot) {
+                    focusManager.clearFocus(force = true)
+                }
 
                 // BackHandler to close sheet or return to Search tab
                 BackHandler(enabled = uiState.selectedLot != null || uiState.currentTab != 0) {
+                    focusManager.clearFocus(force = true)
                     if (uiState.selectedLot != null) {
                         viewModel.clearSelectedLot()
                     } else if (uiState.currentTab != 0) {
@@ -139,7 +148,10 @@ class MainActivity : ComponentActivity() {
                         ) {
                             NavigationBarItem(
                                 selected = uiState.currentTab == 0,
-                                onClick = { viewModel.setTab(0) },
+                                onClick = {
+                                    focusManager.clearFocus(force = true)
+                                    viewModel.setTab(0)
+                                },
                                 icon = {
                                     Icon(
                                         imageVector = if (uiState.currentTab == 0) Icons.Filled.Search else Icons.Outlined.Search,
@@ -152,7 +164,10 @@ class MainActivity : ComponentActivity() {
 
                             NavigationBarItem(
                                 selected = uiState.currentTab == 1,
-                                onClick = { viewModel.setTab(1) },
+                                onClick = {
+                                    focusManager.clearFocus(force = true)
+                                    viewModel.setTab(1)
+                                },
                                 icon = {
                                     Icon(
                                         imageVector = if (uiState.currentTab == 1) Icons.Filled.Layers else Icons.Outlined.Layers,
@@ -165,7 +180,10 @@ class MainActivity : ComponentActivity() {
 
                             NavigationBarItem(
                                 selected = uiState.currentTab == 2,
-                                onClick = { viewModel.setTab(2) },
+                                onClick = {
+                                    focusManager.clearFocus(force = true)
+                                    viewModel.setTab(2)
+                                },
                                 icon = {
                                     Icon(
                                         imageVector = if (uiState.currentTab == 2) Icons.Filled.Map else Icons.Outlined.Map,
@@ -178,7 +196,10 @@ class MainActivity : ComponentActivity() {
 
                             NavigationBarItem(
                                 selected = uiState.currentTab == 3,
-                                onClick = { viewModel.setTab(3) },
+                                onClick = {
+                                    focusManager.clearFocus(force = true)
+                                    viewModel.setTab(3)
+                                },
                                 icon = {
                                     Icon(
                                         imageVector = if (uiState.currentTab == 3) Icons.Filled.TableChart else Icons.Outlined.TableChart,
@@ -191,7 +212,10 @@ class MainActivity : ComponentActivity() {
 
                             NavigationBarItem(
                                 selected = uiState.currentTab == 4,
-                                onClick = { viewModel.setTab(4) },
+                                onClick = {
+                                    focusManager.clearFocus(force = true)
+                                    viewModel.setTab(4)
+                                },
                                 icon = {
                                     Icon(
                                         imageVector = if (uiState.currentTab == 4) Icons.Filled.PinDrop else Icons.Outlined.PinDrop,

@@ -308,8 +308,14 @@ fun SearchScreen(
                             LotCard(
                                 lot = lot,
                                 isFavorite = isFav,
-                                onSelect = { onSelectLot(lot) },
-                                onViewOnMap = { onViewOnMap(lot) },
+                                onSelect = {
+                                    focusManager.clearFocus(force = true)
+                                    onSelectLot(lot)
+                                },
+                                onViewOnMap = {
+                                    focusManager.clearFocus(force = true)
+                                    onViewOnMap(lot)
+                                },
                                 onToggleFavorite = { onToggleFavorite(lot) }
                             )
                         }

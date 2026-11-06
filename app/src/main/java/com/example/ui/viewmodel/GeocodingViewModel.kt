@@ -166,15 +166,22 @@ class GeocodingViewModel(application: Application) : AndroidViewModel(applicatio
                 raFilter = _uiState.value.selectedRaFilter.takeIf { it != "TODAS" }
             )
             result.onSuccess { lots ->
+                val sortedLots = lots.sortedWith(
+                    compareBy<CadastreLot> { it.quadra }
+                        .thenBy { it.conjunto }
+                        .thenBy { it.loteNumberForSort }
+                        .thenBy { it.lote }
+                        .thenBy { it.ciu }
+                )
                 _uiState.update {
                     it.copy(
-                        searchResults = lots,
+                        searchResults = sortedLots,
                         isSearching = false,
                         searchError = if (lots.isEmpty()) "Nenhum lote ou endereço cadastral encontrado para '$trimmed'." else null
                     )
                 }
-                if (lots.isNotEmpty()) {
-                    val first = lots.first()
+                if (sortedLots.isNotEmpty()) {
+                    val first = sortedLots.first()
                     if (first.latitude != 0.0 && first.longitude != 0.0) {
                         centerMapOn(first.latitude, first.longitude)
                     }

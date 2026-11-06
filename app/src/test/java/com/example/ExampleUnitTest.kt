@@ -124,5 +124,48 @@ class ExampleUnitTest {
         assertEquals("SHTN, TRECHO 1", residence.quadraDisplay)
         assertEquals("LT 8, POLO 3", residence.numeroCasaDisplay)
     }
+
+    @Test
+    fun testSetorMSulSpecificResidence() {
+        val residence = CadastreLot(
+            objectId = 178280L,
+            ciu = "134III6A0511",
+            setor = "SETOR M SUL",
+            quadra = "QNM 3",
+            conjunto = "CJ N",
+            lote = "LT 21",
+            endUsual = "SETOR M SUL QNM 3 CJ N LT 21",
+            ra = "CEILÂNDIA",
+            cep = "72215044",
+            latitude = -15.823722,
+            longitude = -48.101691
+        )
+        assertEquals("SETOR M SUL QNM 3 CJ N LT 21", residence.displayAddress)
+        assertEquals("72215-044", residence.formattedCep)
+        assertEquals("ct_CIU: 134III6A0511", residence.displayCiu)
+        assertEquals("SETOR M SUL, QNM 3", residence.quadraDisplay)
+        assertEquals("LT 21, CJ N", residence.numeroCasaDisplay)
+        assertEquals("CEILÂNDIA • CEP 72215-044", residence.displaySubtitle)
+    }
+
+    @Test
+    fun testAscendingLotSorting() {
+        val lot1 = CadastreLot(objectId = 1, quadra = "QNM 3", conjunto = "CJ N", lote = "LT 2")
+        val lot2 = CadastreLot(objectId = 2, quadra = "QNM 3", conjunto = "CJ N", lote = "LT 10")
+        val lot3 = CadastreLot(objectId = 3, quadra = "QNM 3", conjunto = "CJ N", lote = "LT 1")
+        val lot4 = CadastreLot(objectId = 4, quadra = "QNM 3", conjunto = "CJ N", lote = "LT 21")
+
+        val sorted = listOf(lot1, lot2, lot3, lot4).sortedWith(
+            compareBy<CadastreLot> { it.quadra }
+                .thenBy { it.conjunto }
+                .thenBy { it.loteNumberForSort }
+                .thenBy { it.lote }
+        )
+
+        assertEquals("LT 1", sorted[0].lote)
+        assertEquals("LT 2", sorted[1].lote)
+        assertEquals("LT 10", sorted[2].lote)
+        assertEquals("LT 21", sorted[3].lote)
+    }
 }
 
