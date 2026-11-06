@@ -8,6 +8,7 @@ import android.content.Intent
 import android.net.Uri
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
@@ -187,9 +188,9 @@ fun GoogleMapsScreen(
     val isApiKeyConfigured = BuildConfig.MAPS_API_KEY.isNotBlank() && BuildConfig.MAPS_API_KEY != "DEFAULT_KEY"
     val apiKeyToUse = BuildConfig.MAPS_API_KEY
 
-    // Default to NATIVE_SDK when key is active & Play Services is available, else fallback to INTERACTIVE_WEB
+    // Primary engine: Official Google Maps Android SDK 3D (per Google documentation)
     var mapEngineMode by remember {
-        mutableStateOf(if (hasPlayServices && isApiKeyConfigured) GoogleMapMode.NATIVE_SDK else GoogleMapMode.INTERACTIVE_WEB)
+        mutableStateOf(if (hasPlayServices) GoogleMapMode.NATIVE_SDK else GoogleMapMode.INTERACTIVE_WEB)
     }
 
     val brasilia = remember { LatLng(-15.7942, -47.8822) }
@@ -415,6 +416,12 @@ fun GoogleMapsScreen(
                         settings.domStorageEnabled = true
                         settings.useWideViewPort = true
                         settings.loadWithOverviewMode = true
+                        settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                        settings.loadsImagesAutomatically = true
+                        settings.blockNetworkImage = false
+                        settings.allowContentAccess = true
+                        settings.allowFileAccess = true
+                        settings.cacheMode = WebSettings.LOAD_DEFAULT
                         webChromeClient = WebChromeClient()
 
                         addJavascriptInterface(object {
@@ -455,7 +462,7 @@ fun GoogleMapsScreen(
                         }
 
                         loadDataWithBaseURL(
-                            "https://maps.googleapis.com",
+                            "https://geodf.app",
                             generateGoogleMapsWebHtml(apiKeyToUse),
                             "text/html",
                             "UTF-8",
@@ -524,7 +531,11 @@ fun GoogleMapsScreen(
                                     )
                                 }
                                 Text(
-                                    text = if (mapEngineMode == GoogleMapMode.NATIVE_SDK) "SDK Nativo 3D • Chave Ativa" else "Modo Web Interativo",
+                                    text = if (mapEngineMode == GoogleMapMode.NATIVE_SDK) {
+                                        "SDK Nativo 3D • ${when (mapType) { MapType.SATELLITE -> "Satélite HD"; MapType.HYBRID -> "Híbrido"; MapType.TERRAIN -> "Terreno"; else -> "Ruas" }}"
+                                    } else {
+                                        "Modo Web • ${when (currentWebLayer) { "satellite" -> "Satélite HD"; "hybrid" -> "Híbrido"; "topo" -> "Terreno"; else -> "Ruas" }}"
+                                    },
                                     style = MaterialTheme.typography.labelSmall,
                                     color = if (mapEngineMode == GoogleMapMode.NATIVE_SDK) Color(0xFF10B981) else MaterialTheme.colorScheme.primary
                                 )
@@ -629,7 +640,7 @@ fun GoogleMapsScreen(
                         }
                     }
 
-                    // Engine switcher & quick highway chips
+                    // 1. Engine & Layer Switcher
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -638,7 +649,6 @@ fun GoogleMapsScreen(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Switch between Native SDK and Web Interactive
                         if (hasPlayServices) {
                             FilterChip(
                                 selected = mapEngineMode == GoogleMapMode.NATIVE_SDK,
@@ -654,7 +664,67 @@ fun GoogleMapsScreen(
                         FilterChip(
                             selected = mapEngineMode == GoogleMapMode.INTERACTIVE_WEB,
                             onClick = { mapEngineMode = GoogleMapMode.INTERACTIVE_WEB },
-                            label = { Text("🌐 Web Interativo", style = MaterialTheme.typography.labelSmall) }
+                            label = { Text("🌐 Modo Alternativo", style = MaterialTheme.typography.labelSmall) }
+                        )
+
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        // Direct Layer Switchers (Ruas, Satélite, Híbrido, Terreno)
+                        val isNormal = (mapEngineMode == GoogleMapMode.NATIVE_SDK && mapType == MapType.NORMAL) ||
+                                (mapEngineMode == GoogleMapMode.INTERACTIVE_WEB && currentWebLayer == "streets")
+                        val isSatellite = (mapEngineMode == GoogleMapMode.NATIVE_SDK && mapType == MapType.SATELLITE) ||
+                                (mapEngineMode == GoogleMapMode.INTERACTIVE_WEB && currentWebLayer == "satellite")
+                        val isHybrid = (mapEngineMode == GoogleMapMode.NATIVE_SDK && mapType == MapType.HYBRID) ||
+                                (mapEngineMode == GoogleMapMode.INTERACTIVE_WEB && currentWebLayer == "hybrid")
+                        val isTerrain = (mapEngineMode == GoogleMapMode.NATIVE_SDK && mapType == MapType.TERRAIN) ||
+                                (mapEngineMode == GoogleMapMode.INTERACTIVE_WEB && currentWebLayer == "topo")
+
+                        FilterChip(
+                            selected = isNormal,
+                            onClick = {
+                                mapType = MapType.NORMAL
+                                currentWebLayer = "streets"
+                                webViewInstance?.evaluateJavascript("setMapLayer('streets');", null)
+                                Toast.makeText(context, "Camada: Ruas", Toast.LENGTH_SHORT).show()
+                            },
+                            label = { Text("🗺️ Ruas", style = MaterialTheme.typography.labelSmall) }
+                        )
+
+                        FilterChip(
+                            selected = isSatellite,
+                            onClick = {
+                                mapType = MapType.SATELLITE
+                                currentWebLayer = "satellite"
+                                webViewInstance?.evaluateJavascript("setMapLayer('satellite');", null)
+                                Toast.makeText(context, "Camada: Satélite HD", Toast.LENGTH_SHORT).show()
+                            },
+                            label = { Text("🛰️ Satélite", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                selectedLabelColor = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        )
+
+                        FilterChip(
+                            selected = isHybrid,
+                            onClick = {
+                                mapType = MapType.HYBRID
+                                currentWebLayer = "hybrid"
+                                webViewInstance?.evaluateJavascript("setMapLayer('hybrid');", null)
+                                Toast.makeText(context, "Camada: Híbrido (Satélite + Vias)", Toast.LENGTH_SHORT).show()
+                            },
+                            label = { Text("⛰️ Híbrido", style = MaterialTheme.typography.labelSmall) }
+                        )
+
+                        FilterChip(
+                            selected = isTerrain,
+                            onClick = {
+                                mapType = MapType.TERRAIN
+                                currentWebLayer = "topo"
+                                webViewInstance?.evaluateJavascript("setMapLayer('topo');", null)
+                                Toast.makeText(context, "Camada: Terreno", Toast.LENGTH_SHORT).show()
+                            },
+                            label = { Text("🏔️ Terreno", style = MaterialTheme.typography.labelSmall) }
                         )
 
                         Icon(
@@ -1112,8 +1182,9 @@ private fun generateGoogleMapsWebHtml(apiKey: String): String {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
   <style>
     html, body, #gmap { margin: 0; padding: 0; width: 100%; height: 100%; background: #0f172a; }
     .map-tag {
@@ -1136,6 +1207,11 @@ private fun generateGoogleMapsWebHtml(apiKey: String): String {
 <body>
   <div id="gmap"></div>
   <script>
+    if (typeof L === 'undefined') {
+      document.write('<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>');
+    }
+  </script>
+  <script>
     var map = L.map('gmap', {
       center: [-15.7942, -47.8822],
       zoom: 11,
@@ -1143,12 +1219,42 @@ private fun generateGoogleMapsWebHtml(apiKey: String): String {
       attributionControl: false
     });
 
-    // High resolution Google Maps style satellite, roads and hybrid tiles
-    var googleRoads = L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', { maxZoom: 20 });
-    var googleHybrid = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', { maxZoom: 20 });
-    var esriSatellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
+    // Multi-layer reliable map tiles for Brasília (CartoDB Voyager, Esri Satellite, Google Hybrid, OSM)
+    var streetsLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19,
+      subdomains: 'abcd',
+      attribution: '© CartoDB / Google'
+    });
+    var satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19,
+      attribution: '© Esri Satellite HD'
+    });
+    var googleRoads = L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+      maxZoom: 20,
+      subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+    });
+    var googleSatellite = L.tileLayer('https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+      maxZoom: 20,
+      subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+    });
+    var googleHybrid = L.tileLayer('https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+      maxZoom: 20,
+      subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+    });
+    var osmLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
+    });
 
-    googleRoads.addTo(map);
+    // Always start with streetsLayer so the map is NEVER white or blank!
+    streetsLayer.addTo(map);
+
+    googleRoads.on('tileerror', function() {
+      if (!map.hasLayer(streetsLayer)) streetsLayer.addTo(map);
+    });
+    googleHybrid.on('tileerror', function() {
+      if (!map.hasLayer(satelliteLayer)) satelliteLayer.addTo(map);
+    });
 
     var resLayer = L.layerGroup().addTo(map);
     var kmLayer = L.layerGroup().addTo(map);
@@ -1168,15 +1274,23 @@ private fun generateGoogleMapsWebHtml(apiKey: String): String {
     }
 
     function setMapLayer(type) {
-      if (map.hasLayer(googleRoads)) map.removeLayer(googleRoads);
-      if (map.hasLayer(googleHybrid)) map.removeLayer(googleHybrid);
-      if (map.hasLayer(esriSatellite)) map.removeLayer(esriSatellite);
+      map.removeLayer(streetsLayer);
+      map.removeLayer(satelliteLayer);
+      map.removeLayer(googleHybrid);
+      map.removeLayer(googleSatellite);
+      map.removeLayer(googleRoads);
+      map.removeLayer(osmLayer);
+
       if (type === 'satellite') {
-        esriSatellite.addTo(map);
+        satelliteLayer.addTo(map);
+        try { googleSatellite.addTo(map); } catch(_) {}
       } else if (type === 'hybrid') {
-        googleHybrid.addTo(map);
+        satelliteLayer.addTo(map);
+        try { googleHybrid.addTo(map); } catch(_) {}
+      } else if (type === 'topo' || type === 'osm') {
+        osmLayer.addTo(map);
       } else {
-        googleRoads.addTo(map);
+        streetsLayer.addTo(map);
       }
     }
 

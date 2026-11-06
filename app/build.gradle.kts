@@ -25,7 +25,14 @@ android {
     val envProp = Properties()
     val envF = rootProject.file(".env")
     val envExF = rootProject.file(".env.example")
-    val targetF = if (envF.exists()) envF else envExF
+    val secretsF = rootProject.file("secrets.properties")
+    val defaultsF = rootProject.file("local.defaults.properties")
+    val targetF = when {
+      secretsF.exists() -> secretsF
+      envF.exists() -> envF
+      defaultsF.exists() -> defaultsF
+      else -> envExF
+    }
     if (targetF.exists()) {
       FileInputStream(targetF).use { envProp.load(it) }
     }
@@ -82,13 +89,13 @@ android {
   }
 }
 
-// Configure the Secrets Gradle Plugin to use .env and .env.example files
-// to match the convention used in Web projects.
+// Configure the Secrets Gradle Plugin to use secrets.properties and local.defaults.properties
+// according to official Google Maps Android SDK documentation:
+// https://developers.google.com/maps/documentation/android-sdk/config?hl=pt-br#kotlin
 secrets {
-  propertiesFileName = ".env"
-  defaultPropertiesFileName = ".env.example"
+  propertiesFileName = "secrets.properties"
+  defaultPropertiesFileName = "local.defaults.properties"
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
-  ignoreList.add("MAPS_API_KEY")
 }
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
