@@ -29,7 +29,9 @@ android {
     if (targetF.exists()) {
       FileInputStream(targetF).use { envProp.load(it) }
     }
-    manifestPlaceholders["MAPS_API_KEY"] = envProp.getProperty("MAPS_API_KEY", "DEFAULT_KEY")
+    val resolvedKey = envProp.getProperty("MAPS_API_KEY", "AIzaSyCiBwKhhvBPSgJo6JnhwLptOUzBCyo8Vj4").trim()
+    manifestPlaceholders["MAPS_API_KEY"] = resolvedKey
+    buildConfigField("String", "MAPS_API_KEY", "\"${resolvedKey}\"")
   }
 
   // Do not remove or modify these signingConfigs. They are necessary for building, installing,
@@ -86,6 +88,7 @@ secrets {
   propertiesFileName = ".env"
   defaultPropertiesFileName = ".env.example"
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
+  ignoreList.add("MAPS_API_KEY")
 }
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
