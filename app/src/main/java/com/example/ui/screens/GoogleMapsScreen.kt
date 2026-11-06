@@ -4,12 +4,18 @@ import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
-import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -24,28 +30,46 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.LocationCity
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Traffic
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -60,8 +84,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -95,6 +121,33 @@ enum class GoogleMapMode {
     INTERACTIVE_WEB
 }
 
+data class DfRegionCenter(
+    val name: String,
+    val lat: Double,
+    val lon: Double,
+    val zoom: Float = 14f
+)
+
+private val DF_REGIONS = listOf(
+    DfRegionCenter("Plano Piloto (Brasília)", -15.7942, -47.8822, 13f),
+    DfRegionCenter("Ceilândia", -15.8203, -48.1130, 14f),
+    DfRegionCenter("Taguatinga", -15.8335, -48.0566, 14f),
+    DfRegionCenter("Águas Claras", -15.8398, -48.0267, 14f),
+    DfRegionCenter("Samambaia", -15.8770, -48.0860, 14f),
+    DfRegionCenter("Guará", -15.8242, -47.9780, 14f),
+    DfRegionCenter("Sobradinho", -15.6517, -47.7917, 14f),
+    DfRegionCenter("Gama", -16.0180, -48.0645, 14f),
+    DfRegionCenter("Planaltina", -15.6178, -47.6499, 14f),
+    DfRegionCenter("Santa Maria", -16.0189, -47.9942, 14f),
+    DfRegionCenter("Vicente Pires", -15.8055, -48.0336, 14f),
+    DfRegionCenter("Riacho Fundo", -15.8828, -48.0167, 14f),
+    DfRegionCenter("Recanto das Emas", -15.9031, -48.0700, 14f),
+    DfRegionCenter("Sudoeste / Cruzeiro", -15.7983, -47.9250, 14f),
+    DfRegionCenter("Lago Sul", -15.8458, -47.8681, 13f),
+    DfRegionCenter("Lago Norte", -15.7333, -47.8500, 13f),
+    DfRegionCenter("Brazlândia", -15.6739, -48.2014, 14f)
+)
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun GoogleMapsScreen(
@@ -103,12 +156,16 @@ fun GoogleMapsScreen(
     onSelectKmdfRecord: (KmdfRecord) -> Unit,
     onMapClickCoordinate: (Double, Double) -> Unit,
     onReverseGeocodeKm: (KmdfRecord) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onClearSelectedLot: (() -> Unit)? = null,
+    onClearSelectedKmdfRecord: (() -> Unit)? = null,
+    onSearchQuery: ((String) -> Unit)? = null
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
 
-    // Check if Google Play Services is available on this device/emulator
+    // Check Google Play Services status
     val playServicesStatus = remember {
         GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context)
     }
@@ -119,7 +176,7 @@ fun GoogleMapsScreen(
         if (hasPlayServices) {
             try {
                 MapsInitializer.initialize(context, MapsInitializer.Renderer.LATEST) { }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 try {
                     MapsInitializer.initialize(context, MapsInitializer.Renderer.LEGACY) { }
                 } catch (_: Exception) { }
@@ -127,13 +184,13 @@ fun GoogleMapsScreen(
         }
     }
 
-    // Default to INTERACTIVE_WEB so the map ALWAYS loads without Play Services / Google Cloud SHA-1 authorization restrictions!
-    var mapEngineMode by remember {
-        mutableStateOf(GoogleMapMode.INTERACTIVE_WEB)
-    }
-
     val isApiKeyConfigured = BuildConfig.MAPS_API_KEY.isNotBlank() && BuildConfig.MAPS_API_KEY != "DEFAULT_KEY"
     val apiKeyToUse = BuildConfig.MAPS_API_KEY
+
+    // Default to NATIVE_SDK when key is active & Play Services is available, else fallback to INTERACTIVE_WEB
+    var mapEngineMode by remember {
+        mutableStateOf(if (hasPlayServices && isApiKeyConfigured) GoogleMapMode.NATIVE_SDK else GoogleMapMode.INTERACTIVE_WEB)
+    }
 
     val brasilia = remember { LatLng(-15.7942, -47.8822) }
     val cameraPositionState = rememberCameraPositionState {
@@ -142,12 +199,56 @@ fun GoogleMapsScreen(
 
     var mapType by remember { mutableStateOf(MapType.NORMAL) }
     var currentWebLayer by remember { mutableStateOf("streets") }
+    var showTraffic by remember { mutableStateOf(false) }
     var showKmdfMarkers by remember { mutableStateOf(true) }
     var showCadastreLots by remember { mutableStateOf(true) }
     var showDiagnostics by remember { mutableStateOf(false) }
+    var showRegionsMenu by remember { mutableStateOf(false) }
     var selectedRodoviaFilter by remember { mutableStateOf("TODAS") }
 
+    // In-map search bar state
+    var inMapSearchQuery by remember { mutableStateOf("") }
+    var showSearchBar by remember { mutableStateOf(false) }
+
+    // Local preview for selected elements on map
+    var localPreviewLot by remember { mutableStateOf<CadastreLot?>(null) }
+    var localPreviewKmdf by remember { mutableStateOf<KmdfRecord?>(null) }
+
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
+
+    // Sync selected lot from uiState if present
+    LaunchedEffect(uiState.selectedLot) {
+        uiState.selectedLot?.let { lot ->
+            localPreviewLot = lot
+            localPreviewKmdf = null
+            if (lot.latitude != 0.0 && lot.longitude != 0.0) {
+                if (mapEngineMode == GoogleMapMode.NATIVE_SDK) {
+                    cameraPositionState.animate(
+                        CameraUpdateFactory.newLatLngZoom(LatLng(lot.latitude, lot.longitude), 17.5f)
+                    )
+                } else {
+                    webViewInstance?.evaluateJavascript("googleMapCenter(${lot.latitude}, ${lot.longitude}, 17);", null)
+                }
+            }
+        }
+    }
+
+    // Sync selected KMDF record from uiState
+    LaunchedEffect(uiState.selectedKmdfRecord) {
+        uiState.selectedKmdfRecord?.let { km ->
+            localPreviewKmdf = km
+            localPreviewLot = null
+            if (km.latitude != 0.0 && km.longitude != 0.0) {
+                if (mapEngineMode == GoogleMapMode.NATIVE_SDK) {
+                    cameraPositionState.animate(
+                        CameraUpdateFactory.newLatLngZoom(LatLng(km.latitude, km.longitude), 16f)
+                    )
+                } else {
+                    webViewInstance?.evaluateJavascript("googleMapCenter(${km.latitude}, ${km.longitude}, 16);", null)
+                }
+            }
+        }
+    }
 
     val filteredKmdf = remember(uiState.kmdfRecords, selectedRodoviaFilter) {
         if (selectedRodoviaFilter == "TODAS") {
@@ -161,7 +262,7 @@ fun GoogleMapsScreen(
         listOf("TODAS") + uiState.kmdfRecords.map { it.rodovia }.distinct().sorted()
     }
 
-    // JSON for interactive web mode
+    // JSON serialization for interactive web mode
     val webResidencesJson = remember(uiState.searchResults) {
         val arr = JSONArray()
         uiState.searchResults.take(150).forEach { r ->
@@ -201,7 +302,7 @@ fun GoogleMapsScreen(
             .fillMaxSize()
             .testTag("google_maps_screen_container")
     ) {
-        // MAP RENDERING: Either Native GoogleMap SDK OR Guaranteed Interactive Google Maps Web
+        // 1. MAP ENGINE: Native 3D Google Maps SDK OR Interactive Google Maps Web
         if (mapEngineMode == GoogleMapMode.NATIVE_SDK && hasPlayServices) {
             GoogleMap(
                 modifier = Modifier
@@ -210,20 +311,30 @@ fun GoogleMapsScreen(
                 cameraPositionState = cameraPositionState,
                 properties = MapProperties(
                     mapType = mapType,
-                    isMyLocationEnabled = false
+                    isMyLocationEnabled = false,
+                    isTrafficEnabled = showTraffic,
+                    isBuildingEnabled = true,
+                    isIndoorEnabled = true
                 ),
                 uiSettings = MapUiSettings(
                     zoomControlsEnabled = false,
                     compassEnabled = true,
-                    mapToolbarEnabled = true
+                    mapToolbarEnabled = true,
+                    myLocationButtonEnabled = false,
+                    rotationGesturesEnabled = true,
+                    tiltGesturesEnabled = true,
+                    scrollGesturesEnabled = true,
+                    zoomGesturesEnabled = true
                 ),
                 onMapClick = { latLng ->
+                    focusManager.clearFocus(force = true)
                     onMapClickCoordinate(latLng.latitude, latLng.longitude)
                 }
             ) {
-                // 1. Draw lot markers & polygons
+                // Render Cadastre Lot markers & polygons
                 if (showCadastreLots) {
-                    uiState.selectedLot?.let { lot ->
+                    val activeLot = localPreviewLot ?: uiState.selectedLot
+                    activeLot?.let { lot ->
                         for (ring in lot.rings) {
                             if (ring.size >= 3) {
                                 val pts = ring.map { LatLng(it.second, it.first) }
@@ -231,7 +342,7 @@ fun GoogleMapsScreen(
                                     points = pts,
                                     fillColor = Color(0x66FFB703),
                                     strokeColor = Color(0xFFFFB703),
-                                    strokeWidth = 5f
+                                    strokeWidth = 6f
                                 )
                             }
                         }
@@ -239,21 +350,23 @@ fun GoogleMapsScreen(
                             Marker(
                                 state = MarkerState(position = LatLng(lot.latitude, lot.longitude)),
                                 title = lot.displayAddress,
-                                snippet = "${lot.ra} • ${lot.formattedArea}",
+                                snippet = "ct_CIU: ${lot.ciu} • ${lot.ra}",
                                 icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)
                             )
                         }
                     }
 
                     uiState.searchResults.forEach { lot ->
-                        if (lot.objectId != uiState.selectedLot?.objectId && lot.latitude != 0.0 && lot.longitude != 0.0) {
+                        val isSelected = lot.objectId == activeLot?.objectId
+                        if (!isSelected && lot.latitude != 0.0 && lot.longitude != 0.0) {
                             Marker(
                                 state = MarkerState(position = LatLng(lot.latitude, lot.longitude)),
                                 title = lot.displayAddress,
                                 snippet = lot.displaySubtitle,
                                 icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_CYAN),
                                 onClick = {
-                                    onSelectLot(lot)
+                                    localPreviewLot = lot
+                                    localPreviewKmdf = null
                                     false
                                 }
                             )
@@ -261,10 +374,10 @@ fun GoogleMapsScreen(
                     }
                 }
 
-                // 2. Draw Highway KMDF markers
+                // Render Highway KMDF milestone markers
                 if (showKmdfMarkers) {
                     filteredKmdf.forEach { kmRec ->
-                        val isSelected = uiState.selectedKmdfRecord?.id == kmRec.id
+                        val isSelected = (localPreviewKmdf?.id == kmRec.id) || (uiState.selectedKmdfRecord?.id == kmRec.id)
                         val hue = when (kmRec.rodovia) {
                             "DF-001" -> BitmapDescriptorFactory.HUE_BLUE
                             "DF-002" -> BitmapDescriptorFactory.HUE_GREEN
@@ -281,7 +394,8 @@ fun GoogleMapsScreen(
                             snippet = "${kmRec.trecho} (${kmRec.ra})",
                             icon = BitmapDescriptorFactory.defaultMarker(if (isSelected) BitmapDescriptorFactory.HUE_MAGENTA else hue),
                             onClick = {
-                                onSelectKmdfRecord(kmRec)
+                                localPreviewKmdf = kmRec
+                                localPreviewLot = null
                                 false
                             }
                         )
@@ -289,7 +403,7 @@ fun GoogleMapsScreen(
                 }
             }
         } else {
-            // Interactive Google Maps Web Engine: 100% Guaranteed to render on ANY device or emulator!
+            // Interactive Google Maps Web Engine
             AndroidView(
                 modifier = Modifier
                     .fillMaxSize()
@@ -306,18 +420,29 @@ fun GoogleMapsScreen(
                         addJavascriptInterface(object {
                             @JavascriptInterface
                             fun onMapClicked(lat: Double, lon: Double) {
-                                scope.launch { onMapClickCoordinate(lat, lon) }
+                                scope.launch {
+                                    focusManager.clearFocus(force = true)
+                                    onMapClickCoordinate(lat, lon)
+                                }
                             }
+
                             @JavascriptInterface
                             fun onLotClicked(id: Long) {
                                 scope.launch {
-                                    uiState.searchResults.find { it.objectId == id }?.let { onSelectLot(it) }
+                                    uiState.searchResults.find { it.objectId == id }?.let { lot ->
+                                        localPreviewLot = lot
+                                        localPreviewKmdf = null
+                                    }
                                 }
                             }
+
                             @JavascriptInterface
                             fun onKmdfClicked(id: String) {
                                 scope.launch {
-                                    uiState.kmdfRecords.find { it.id == id }?.let { onSelectKmdfRecord(it) }
+                                    uiState.kmdfRecords.find { it.id == id }?.let { km ->
+                                        localPreviewKmdf = km
+                                        localPreviewLot = null
+                                    }
                                 }
                             }
                         }, "AndroidGoogleMap")
@@ -345,38 +470,47 @@ fun GoogleMapsScreen(
             )
         }
 
-        // Top Overlay: Status Bar, Highway Filters & Engine Switcher
+        // 2. Top Header & Floating Search Bar & Engine Controls
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
                 shadowElevation = 6.dp
             ) {
                 Column(modifier = Modifier.padding(10.dp)) {
+                    // Header Bar
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Default.Map,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        Icons.Default.Map,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        text = "Google Maps • Distrito Federal",
+                                        text = "Google Maps • DF",
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface
@@ -390,22 +524,108 @@ fun GoogleMapsScreen(
                                     )
                                 }
                                 Text(
-                                    text = if (mapEngineMode == GoogleMapMode.NATIVE_SDK) "Motor: Google Maps SDK Nativo" else "Motor: Google Maps Interativo (Garantido)",
+                                    text = if (mapEngineMode == GoogleMapMode.NATIVE_SDK) "SDK Nativo 3D • Chave Ativa" else "Modo Web Interativo",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = if (mapEngineMode == GoogleMapMode.NATIVE_SDK) Color(0xFF10B981) else MaterialTheme.colorScheme.primary
                                 )
                             }
                         }
 
-                        IconButton(
-                            onClick = { showDiagnostics = !showDiagnostics },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Settings,
-                                contentDescription = "Diagnóstico e Modo",
-                                tint = if (showDiagnostics) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = { showSearchBar = !showSearchBar },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    if (showSearchBar) Icons.Default.Close else Icons.Default.Search,
+                                    contentDescription = "Buscar no Mapa",
+                                    tint = if (showSearchBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { showDiagnostics = !showDiagnostics },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Settings,
+                                    contentDescription = "Diagnóstico",
+                                    tint = if (showDiagnostics) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    // Expandable In-Map Search Bar
+                    AnimatedVisibility(
+                        visible = showSearchBar,
+                        enter = fadeIn() + slideInVertically(),
+                        exit = fadeOut() + slideOutVertically()
+                    ) {
+                        Column(modifier = Modifier.padding(top = 8.dp)) {
+                            OutlinedTextField(
+                                value = inMapSearchQuery,
+                                onValueChange = { inMapSearchQuery = it },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("in_map_search_field"),
+                                placeholder = { Text("Buscar casa, quadra, CIU, rodovia ou CEP...") },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                },
+                                trailingIcon = {
+                                    if (inMapSearchQuery.isNotBlank()) {
+                                        IconButton(onClick = {
+                                            inMapSearchQuery = ""
+                                            focusManager.clearFocus(force = true)
+                                        }) {
+                                            Icon(Icons.Default.Clear, contentDescription = "Limpar")
+                                        }
+                                    }
+                                },
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(onSearch = {
+                                    focusManager.clearFocus(force = true)
+                                    if (inMapSearchQuery.isNotBlank()) {
+                                        onSearchQuery?.invoke(inMapSearchQuery)
+                                    }
+                                }),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                                )
                             )
+
+                            // Quick sample chips for Brasília
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 6.dp)
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                listOf("QNM 3 CJ N", "SETOR M SUL", "DF-001 KM 12", "72215-030", "Taguatinga", "Ceilândia Centro").forEach { sample ->
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                                        modifier = Modifier.padding(vertical = 2.dp),
+                                        onClick = {
+                                            inMapSearchQuery = sample
+                                            focusManager.clearFocus(force = true)
+                                            onSearchQuery?.invoke(sample)
+                                        }
+                                    ) {
+                                        Text(
+                                            text = sample,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -419,19 +639,23 @@ fun GoogleMapsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         // Switch between Native SDK and Web Interactive
-                        FilterChip(
-                            selected = mapEngineMode == GoogleMapMode.INTERACTIVE_WEB,
-                            onClick = { mapEngineMode = GoogleMapMode.INTERACTIVE_WEB },
-                            label = { Text("Mapa Interativo", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) }
-                        )
-
                         if (hasPlayServices) {
                             FilterChip(
                                 selected = mapEngineMode == GoogleMapMode.NATIVE_SDK,
                                 onClick = { mapEngineMode = GoogleMapMode.NATIVE_SDK },
-                                label = { Text("SDK Nativo", style = MaterialTheme.typography.labelSmall) }
+                                label = { Text("🚀 SDK Nativo 3D", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
                             )
                         }
+
+                        FilterChip(
+                            selected = mapEngineMode == GoogleMapMode.INTERACTIVE_WEB,
+                            onClick = { mapEngineMode = GoogleMapMode.INTERACTIVE_WEB },
+                            label = { Text("🌐 Web Interativo", style = MaterialTheme.typography.labelSmall) }
+                        )
 
                         Icon(
                             Icons.Default.FilterList,
@@ -449,87 +673,15 @@ fun GoogleMapsScreen(
                         }
                     }
 
-                    // If Native SDK is selected, display authorization assistant banner
-                    if (mapEngineMode == GoogleMapMode.NATIVE_SDK) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.95f),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        Icons.Default.Info,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onErrorContainer,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "Modo SDK Nativo • Requisitos de Autorização",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onErrorContainer
-                                    )
-                                }
-                                Text(
-                                    text = "Caso a tela fique cinza com falha de autorização no console:\n" +
-                                            "1. Ative 'Maps SDK for Android' no Google Cloud Console.\n" +
-                                            "2. Registre as credenciais abaixo na sua chave de API:",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onErrorContainer,
-                                    modifier = Modifier.padding(vertical = 4.dp)
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    FilledTonalButton(
-                                        onClick = {
-                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                            clipboard.setPrimaryClip(ClipData.newPlainText("Pacote", "com.aistudio.geodf.pxvrsm"))
-                                            Toast.makeText(context, "Pacote copiado!", Toast.LENGTH_SHORT).show()
-                                        },
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Copiar Pacote", style = MaterialTheme.typography.labelSmall)
-                                    }
-                                    FilledTonalButton(
-                                        onClick = {
-                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                            clipboard.setPrimaryClip(ClipData.newPlainText("SHA-1", "4E:05:7C:33:DE:F9:FC:6D:52:77:C3:14:46:68:8D:17:0F:97:B6:2C"))
-                                            Toast.makeText(context, "SHA-1 copiado!", Toast.LENGTH_SHORT).show()
-                                        },
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Copiar SHA-1", style = MaterialTheme.typography.labelSmall)
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Button(
-                                    onClick = { mapEngineMode = GoogleMapMode.INTERACTIVE_WEB },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("Voltar ao Mapa Interativo (Garantido)")
-                                }
-                            }
-                        }
-                    }
-
-                    // Expandable Diagnostic and Configuration Info
+                    // Diagnostic Card
                     if (showDiagnostics) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column(modifier = Modifier.padding(8.dp)) {
+                            Column(modifier = Modifier.padding(10.dp)) {
                                 Text(
                                     text = "Diagnóstico Google Maps API:",
                                     style = MaterialTheme.typography.labelSmall,
@@ -537,12 +689,12 @@ fun GoogleMapsScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = "• MAPS_API_KEY: ${apiKeyToUse.take(12)}... (Ativa e Injetada)",
+                                    text = "• MAPS_API_KEY: ${apiKeyToUse.take(14)}... (Ativa)",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = Color(0xFF10B981)
                                 )
                                 Text(
-                                    text = "• Google Play Services: ${if (hasPlayServices) "Disponível" else "Não detectado no emulador (usando motor interativo)"}",
+                                    text = "• Google Play Services: ${if (hasPlayServices) "Disponível (Pronto para SDK 3D)" else "Indisponível (Uso do motor interativo)"}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = if (hasPlayServices) Color(0xFF10B981) else Color(0xFFF59E0B)
                                 )
@@ -563,7 +715,7 @@ fun GoogleMapsScreen(
             }
         }
 
-        // Floating Action Buttons on Right
+        // 3. Floating Action Buttons on Right Edge
         Column(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
@@ -571,14 +723,17 @@ fun GoogleMapsScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Layer Switcher (Normal, Satélite, Híbrido, Terreno)
             SmallFloatingActionButton(
                 onClick = {
                     if (mapEngineMode == GoogleMapMode.NATIVE_SDK) {
                         mapType = when (mapType) {
                             MapType.NORMAL -> MapType.SATELLITE
                             MapType.SATELLITE -> MapType.HYBRID
+                            MapType.HYBRID -> MapType.TERRAIN
                             else -> MapType.NORMAL
                         }
+                        Toast.makeText(context, "Camada: ${mapType.name}", Toast.LENGTH_SHORT).show()
                     } else {
                         currentWebLayer = when (currentWebLayer) {
                             "streets" -> "satellite"
@@ -586,14 +741,62 @@ fun GoogleMapsScreen(
                             else -> "streets"
                         }
                         webViewInstance?.evaluateJavascript("setMapLayer('$currentWebLayer');", null)
+                        Toast.makeText(context, "Camada: $currentWebLayer", Toast.LENGTH_SHORT).show()
                     }
                 },
                 containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = MaterialTheme.colorScheme.onSurface
             ) {
-                Icon(Icons.Default.Layers, contentDescription = "Alternar Camadas")
+                Icon(Icons.Default.Layers, contentDescription = "Camadas do Mapa")
             }
 
+            // Real-Time Traffic Toggle
+            SmallFloatingActionButton(
+                onClick = {
+                    showTraffic = !showTraffic
+                    Toast.makeText(context, if (showTraffic) "Trânsito em tempo real ativado" else "Trânsito desativado", Toast.LENGTH_SHORT).show()
+                },
+                containerColor = if (showTraffic) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                contentColor = if (showTraffic) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+            ) {
+                Icon(Icons.Default.Traffic, contentDescription = "Tráfego")
+            }
+
+            // Quick Jump to DF Administrative Regions (RAs)
+            Box {
+                SmallFloatingActionButton(
+                    onClick = { showRegionsMenu = !showRegionsMenu },
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ) {
+                    Icon(Icons.Default.LocationCity, contentDescription = "Regiões do DF")
+                }
+
+                DropdownMenu(
+                    expanded = showRegionsMenu,
+                    onDismissRequest = { showRegionsMenu = false }
+                ) {
+                    DF_REGIONS.forEach { reg ->
+                        DropdownMenuItem(
+                            text = { Text(reg.name, style = MaterialTheme.typography.bodyMedium) },
+                            onClick = {
+                                showRegionsMenu = false
+                                if (mapEngineMode == GoogleMapMode.NATIVE_SDK) {
+                                    scope.launch {
+                                        cameraPositionState.animate(
+                                            CameraUpdateFactory.newLatLngZoom(LatLng(reg.lat, reg.lon), reg.zoom)
+                                        )
+                                    }
+                                } else {
+                                    webViewInstance?.evaluateJavascript("googleMapCenter(${reg.lat}, ${reg.lon}, ${reg.zoom.toInt()});", null)
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+
+            // Zoom In
             SmallFloatingActionButton(
                 onClick = {
                     if (mapEngineMode == GoogleMapMode.NATIVE_SDK) {
@@ -608,6 +811,7 @@ fun GoogleMapsScreen(
                 Icon(Icons.Default.Add, contentDescription = "Aproximar")
             }
 
+            // Zoom Out
             SmallFloatingActionButton(
                 onClick = {
                     if (mapEngineMode == GoogleMapMode.NATIVE_SDK) {
@@ -622,6 +826,7 @@ fun GoogleMapsScreen(
                 Icon(Icons.Default.Remove, contentDescription = "Afastar")
             }
 
+            // Center on Brasília
             FloatingActionButton(
                 onClick = {
                     if (mapEngineMode == GoogleMapMode.NATIVE_SDK) {
@@ -641,9 +846,9 @@ fun GoogleMapsScreen(
             }
         }
 
-        // Bottom Selected Card: Cadastre Lot or KMDF Record
-        val lot = uiState.selectedLot
-        val kmRec = uiState.selectedKmdfRecord
+        // 4. Bottom Selected Card: Cadastre Lot Preview OR KMDF Record Preview
+        val lot = localPreviewLot ?: uiState.selectedLot
+        val kmRec = localPreviewKmdf ?: uiState.selectedKmdfRecord
 
         if (lot != null) {
             ElevatedCard(
@@ -652,29 +857,27 @@ fun GoogleMapsScreen(
                     .fillMaxWidth()
                     .padding(12.dp)
                     .testTag("google_maps_lot_card"),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 8.dp)
+                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 10.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             if (lot.ciu.isNotBlank()) {
                                 Surface(
                                     color = MaterialTheme.colorScheme.primaryContainer,
-                                    shape = RoundedCornerShape(4.dp)
+                                    shape = RoundedCornerShape(6.dp)
                                 ) {
                                     Text(
                                         text = "ct_CIU: ${lot.ciu}",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                                         color = MaterialTheme.colorScheme.onPrimaryContainer
                                     )
                                 }
@@ -682,40 +885,97 @@ fun GoogleMapsScreen(
                             if (lot.ra.isNotBlank()) {
                                 Surface(
                                     color = MaterialTheme.colorScheme.secondaryContainer,
-                                    shape = RoundedCornerShape(4.dp)
+                                    shape = RoundedCornerShape(6.dp)
                                 ) {
                                     Text(
                                         text = lot.ra,
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                                         color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                }
+                            }
+                            if (lot.formattedArea.isNotBlank()) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text(
+                                        text = lot.formattedArea,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = lot.displayAddress,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "Quadra: ${lot.quadraDisplay} • Casa: ${lot.numeroCasaDisplay} • CEP: ${lot.formattedCep}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        IconButton(
+                            onClick = {
+                                localPreviewLot = null
+                                onClearSelectedLot?.invoke()
+                            },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Fechar Card", modifier = Modifier.size(18.dp))
+                        }
                     }
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = lot.displayAddress,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "Quadra: ${lot.quadraDisplay} • Casa: ${lot.numeroCasaDisplay} • CEP: ${lot.formattedCep}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
 
-                    FilledTonalButton(onClick = { onSelectLot(lot) }) {
-                        Text("Ficha")
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { onSelectLot(lot) },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Ficha Completa")
+                        }
+
+                        FilledTonalButton(
+                            onClick = {
+                                val gmmIntentUri = Uri.parse("geo:${lot.latitude},${lot.longitude}?q=${lot.latitude},${lot.longitude}(${Uri.encode(lot.displayAddress)})")
+                                val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri)
+                                try {
+                                    context.startActivity(mapIntent)
+                                } catch (_: Exception) {
+                                    Toast.makeText(context, "Navegador de mapas não encontrado", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Navegar")
+                        }
+
+                        IconButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("Coordenadas", "${lot.latitude}, ${lot.longitude}"))
+                                Toast.makeText(context, "Coordenadas copiadas!", Toast.LENGTH_SHORT).show()
+                            }
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Copiar Coordenadas")
+                        }
                     }
                 }
             }
@@ -726,64 +986,117 @@ fun GoogleMapsScreen(
                     .fillMaxWidth()
                     .padding(12.dp)
                     .testTag("google_maps_kmdf_card"),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 8.dp)
+                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 10.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Surface(
                                 color = CadastreBlue,
-                                shape = RoundedCornerShape(4.dp)
+                                shape = RoundedCornerShape(6.dp)
                             ) {
                                 Text(
                                     text = kmRec.rodovia,
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                 )
                             }
                             Surface(
                                 color = MaterialTheme.colorScheme.primaryContainer,
-                                shape = RoundedCornerShape(4.dp)
+                                shape = RoundedCornerShape(6.dp)
                             ) {
                                 Text(
                                     text = kmRec.kmDisplay,
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                )
+                            }
+                            Surface(
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = kmRec.ra,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = kmRec.trecho,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            text = "WGS84: ${kmRec.formattedDecimalCoords}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
+                        IconButton(
+                            onClick = {
+                                localPreviewKmdf = null
+                                onClearSelectedKmdfRecord?.invoke()
+                            },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Fechar Card", modifier = Modifier.size(18.dp))
+                        }
                     }
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = kmRec.trecho,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "WGS84: ${kmRec.formattedDecimalCoords}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
 
-                    Button(onClick = { onReverseGeocodeKm(kmRec) }) {
-                        Text("Ver Lotes")
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { onReverseGeocodeKm(kmRec) },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Ver Lotes Próximos")
+                        }
+
+                        FilledTonalButton(
+                            onClick = {
+                                val gmmIntentUri = Uri.parse("geo:${kmRec.latitude},${kmRec.longitude}?q=${kmRec.latitude},${kmRec.longitude}(${Uri.encode("${kmRec.rodovia} ${kmRec.kmDisplay}")})")
+                                val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri)
+                                try {
+                                    context.startActivity(mapIntent)
+                                } catch (_: Exception) {
+                                    Toast.makeText(context, "Navegador de mapas não encontrado", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Navegar")
+                        }
+
+                        IconButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("Coordenadas", "${kmRec.latitude}, ${kmRec.longitude}"))
+                                Toast.makeText(context, "Coordenadas copiadas!", Toast.LENGTH_SHORT).show()
+                            }
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Copiar Coordenadas")
+                        }
                     }
                 }
             }
@@ -791,7 +1104,7 @@ fun GoogleMapsScreen(
     }
 }
 
-// Generate self-contained Google Maps Interactive Engine with Leaflet/Google Tiles fallback
+// Generate self-contained Google Maps Interactive Web Engine
 private fun generateGoogleMapsWebHtml(apiKey: String): String {
     return """
 <!DOCTYPE html>
@@ -830,7 +1143,7 @@ private fun generateGoogleMapsWebHtml(apiKey: String): String {
       attributionControl: false
     });
 
-    // High resolution Google Maps style satellite and hybrid road tiles
+    // High resolution Google Maps style satellite, roads and hybrid tiles
     var googleRoads = L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', { maxZoom: 20 });
     var googleHybrid = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', { maxZoom: 20 });
     var esriSatellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });

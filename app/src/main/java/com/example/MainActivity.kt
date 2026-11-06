@@ -260,7 +260,10 @@ class MainActivity : ComponentActivity() {
                                 onSelectLot = viewModel::selectLot,
                                 onSelectKmdfRecord = viewModel::selectKmdfRecord,
                                 onMapClickCoordinate = viewModel::onMapTappedCoordinate,
-                                onReverseGeocodeKm = viewModel::reverseGeocodeKmdfRecord
+                                onReverseGeocodeKm = viewModel::reverseGeocodeKmdfRecord,
+                                onClearSelectedLot = viewModel::clearSelectedLot,
+                                onClearSelectedKmdfRecord = viewModel::clearSelectedKmdfRecord,
+                                onSearchQuery = viewModel::performSearch
                             )
 
                             3 -> KmdfTableScreen(
