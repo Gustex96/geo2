@@ -17,13 +17,20 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import android.location.Geocoder
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material3.CircularProgressIndicator
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.util.Locale
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -122,6 +129,112 @@ enum class GoogleMapMode {
     INTERACTIVE_WEB
 }
 
+data class FreeSearchResult(
+    val name: String,
+    val address: String,
+    val latitude: Double,
+    val longitude: Double,
+    val source: String = "Google Maps"
+)
+
+private suspend fun searchFreePlaceOnMaps(context: Context, query: String, apiKey: String): List<FreeSearchResult> = withContext(Dispatchers.IO) {
+    val results = mutableListOf<FreeSearchResult>()
+    val cleanQuery = query.trim()
+
+    // 0. Check if user typed coordinates like: -15.7942, -47.8822
+    val coordMatch = Regex("""^([+-]?\d+\.?\d*)[,\s]+([+-]?\d+\.?\d*)$""").find(cleanQuery)
+    if (coordMatch != null) {
+        val lat = coordMatch.groupValues[1].toDoubleOrNull()
+        val lon = coordMatch.groupValues[2].toDoubleOrNull()
+        if (lat != null && lon != null && lat in -90.0..90.0 && lon in -180.0..180.0) {
+            results.add(
+                FreeSearchResult(
+                    name = "Coordenadas Informadas",
+                    address = "Lat: $lat, Lon: $lon",
+                    latitude = lat,
+                    longitude = lon,
+                    source = "GPS Direto"
+                )
+            )
+            return@withContext results
+        }
+    }
+
+    // 1. Android Geocoder search
+    try {
+        if (Geocoder.isPresent()) {
+            val geocoder = Geocoder(context, Locale("pt", "BR"))
+            @Suppress("DEPRECATION")
+            val addresses = geocoder.getFromLocationName(cleanQuery, 6)
+            if (!addresses.isNullOrEmpty()) {
+                for (addr in addresses) {
+                    val placeName = addr.featureName?.takeIf { it.isNotBlank() }
+                        ?: addr.thoroughfare?.takeIf { it.isNotBlank() }
+                        ?: cleanQuery
+                    val fullAddress = (0..addr.maxAddressLineIndex)
+                        .mapNotNull { addr.getAddressLine(it) }
+                        .joinToString(", ")
+                    results.add(
+                        FreeSearchResult(
+                            name = placeName,
+                            address = if (fullAddress.isNotBlank()) fullAddress else "$placeName (${addr.adminArea ?: ""})",
+                            latitude = addr.latitude,
+                            longitude = addr.longitude,
+                            source = "Google / Android"
+                        )
+                    )
+                }
+            }
+        }
+    } catch (_: Exception) {}
+
+    // 2. Google Geocoding Web API fallback if needed
+    if (results.isEmpty() && apiKey.isNotBlank() && apiKey != "DEFAULT_KEY") {
+        try {
+            val encodedQuery = java.net.URLEncoder.encode(cleanQuery, "UTF-8")
+            val url = "https://maps.googleapis.com/maps/api/geocode/json?address=$encodedQuery&key=$apiKey&language=pt-BR"
+            val request = okhttp3.Request.Builder().url(url).build()
+            val client = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val bodyStr = response.body?.string()
+                    if (!bodyStr.isNullOrBlank()) {
+                        val json = JSONObject(bodyStr)
+                        if (json.optString("status") == "OK") {
+                            val jsonResults = json.optJSONArray("results")
+                            if (jsonResults != null) {
+                                for (i in 0 until minOf(5, jsonResults.length())) {
+                                    val item = jsonResults.getJSONObject(i)
+                                    val formatted = item.optString("formatted_address")
+                                    val location = item.optJSONObject("geometry")?.optJSONObject("location")
+                                    if (location != null) {
+                                        val lat = location.optDouble("lat")
+                                        val lng = location.optDouble("lng")
+                                        results.add(
+                                            FreeSearchResult(
+                                                name = formatted.substringBefore(","),
+                                                address = formatted,
+                                                latitude = lat,
+                                                longitude = lng,
+                                                source = "Google Geocoding"
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    results
+}
+
 data class DfRegionCenter(
     val name: String,
     val lat: Double,
@@ -194,8 +307,21 @@ fun GoogleMapsScreen(
     }
 
     val brasilia = remember { LatLng(-15.7942, -47.8822) }
+    val initialCameraPosition = remember {
+        val selLot = uiState.selectedLot
+        if (selLot != null && selLot.latitude != 0.0 && selLot.longitude != 0.0) {
+            CameraPosition.fromLatLngZoom(LatLng(selLot.latitude, selLot.longitude), 18.5f)
+        } else {
+            val selKm = uiState.selectedKmdfRecord
+            if (selKm != null && selKm.latitude != 0.0 && selKm.longitude != 0.0) {
+                CameraPosition.fromLatLngZoom(LatLng(selKm.latitude, selKm.longitude), 16f)
+            } else {
+                CameraPosition.fromLatLngZoom(brasilia, 11f)
+            }
+        }
+    }
     val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(brasilia, 11f)
+        position = initialCameraPosition
     }
 
     var mapType by remember { mutableStateOf(MapType.NORMAL) }
@@ -207,9 +333,11 @@ fun GoogleMapsScreen(
     var showRegionsMenu by remember { mutableStateOf(false) }
     var selectedRodoviaFilter by remember { mutableStateOf("TODAS") }
 
-    // In-map search bar state
+    // Free search bar state (consultas livres no Google Maps fora do propósito do aplicativo)
     var inMapSearchQuery by remember { mutableStateOf("") }
-    var showSearchBar by remember { mutableStateOf(false) }
+    var freeSearchResults by remember { mutableStateOf<List<FreeSearchResult>>(emptyList()) }
+    var activeFreeSearchResult by remember { mutableStateOf<FreeSearchResult?>(null) }
+    var isSearchingFree by remember { mutableStateOf(false) }
 
     // Local preview for selected elements on map
     var localPreviewLot by remember { mutableStateOf<CadastreLot?>(null) }
@@ -217,18 +345,64 @@ fun GoogleMapsScreen(
 
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
 
+    val onSelectFreePlace: (FreeSearchResult) -> Unit = { place ->
+        activeFreeSearchResult = place
+        localPreviewLot = null
+        localPreviewKmdf = null
+        freeSearchResults = emptyList()
+        inMapSearchQuery = place.name
+        focusManager.clearFocus(force = true)
+
+        if (mapEngineMode == GoogleMapMode.NATIVE_SDK) {
+            scope.launch {
+                cameraPositionState.animate(
+                    CameraUpdateFactory.newLatLngZoom(LatLng(place.latitude, place.longitude), 16.5f),
+                    durationMs = 600
+                )
+            }
+        } else {
+            webViewInstance?.evaluateJavascript("setFreeSearchMarker('${place.name.replace("'", "\\'")}', '${place.address.replace("'", "\\'")}', ${place.latitude}, ${place.longitude});", null)
+        }
+        Toast.makeText(context, "Local: ${place.name}", Toast.LENGTH_SHORT).show()
+    }
+
+    val executeFreeSearch: (String) -> Unit = { query ->
+        val q = query.trim()
+        if (q.isNotBlank()) {
+            focusManager.clearFocus(force = true)
+            isSearchingFree = true
+            scope.launch {
+                val results = searchFreePlaceOnMaps(context, q, apiKeyToUse)
+                isSearchingFree = false
+                if (results.isNotEmpty()) {
+                    freeSearchResults = results
+                    onSelectFreePlace(results.first())
+                } else {
+                    onSearchQuery?.invoke(q)
+                    Toast.makeText(context, "Buscando \"$q\" no banco local...", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     // Sync selected lot from uiState if present
     LaunchedEffect(uiState.selectedLot) {
         uiState.selectedLot?.let { lot ->
             localPreviewLot = lot
             localPreviewKmdf = null
             if (lot.latitude != 0.0 && lot.longitude != 0.0) {
+                val target = LatLng(lot.latitude, lot.longitude)
                 if (mapEngineMode == GoogleMapMode.NATIVE_SDK) {
-                    cameraPositionState.animate(
-                        CameraUpdateFactory.newLatLngZoom(LatLng(lot.latitude, lot.longitude), 17.5f)
-                    )
+                    try {
+                        cameraPositionState.animate(
+                            CameraUpdateFactory.newLatLngZoom(target, 18.5f),
+                            durationMs = 600
+                        )
+                    } catch (_: Exception) {
+                        cameraPositionState.position = CameraPosition.fromLatLngZoom(target, 18.5f)
+                    }
                 } else {
-                    webViewInstance?.evaluateJavascript("googleMapCenter(${lot.latitude}, ${lot.longitude}, 17);", null)
+                    webViewInstance?.evaluateJavascript("googleMapCenter(${lot.latitude}, ${lot.longitude}, 18);", null)
                 }
             }
         }
@@ -352,7 +526,7 @@ fun GoogleMapsScreen(
                                 state = MarkerState(position = LatLng(lot.latitude, lot.longitude)),
                                 title = lot.displayAddress,
                                 snippet = "ct_CIU: ${lot.ciu} • ${lot.ra}",
-                                icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)
+                                icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_RED)
                             )
                         }
                     }
@@ -401,6 +575,21 @@ fun GoogleMapsScreen(
                             }
                         )
                     }
+                }
+
+                // Render Free Search custom marker (pesquisa livre fora do escopo cadastral)
+                activeFreeSearchResult?.let { freePlace ->
+                    Marker(
+                        state = MarkerState(position = LatLng(freePlace.latitude, freePlace.longitude)),
+                        title = freePlace.name,
+                        snippet = freePlace.address,
+                        icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_VIOLET),
+                        onClick = {
+                            localPreviewLot = null
+                            localPreviewKmdf = null
+                            false
+                        }
+                    )
                 }
             }
         } else {
@@ -544,17 +733,6 @@ fun GoogleMapsScreen(
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             IconButton(
-                                onClick = { showSearchBar = !showSearchBar },
-                                modifier = Modifier.size(34.dp)
-                            ) {
-                                Icon(
-                                    if (showSearchBar) Icons.Default.Close else Icons.Default.Search,
-                                    contentDescription = "Buscar no Mapa",
-                                    tint = if (showSearchBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-
-                            IconButton(
                                 onClick = { showDiagnostics = !showDiagnostics },
                                 modifier = Modifier.size(34.dp)
                             ) {
@@ -567,74 +745,141 @@ fun GoogleMapsScreen(
                         }
                     }
 
-                    // Expandable In-Map Search Bar
-                    AnimatedVisibility(
-                        visible = showSearchBar,
-                        enter = fadeIn() + slideInVertically(),
-                        exit = fadeOut() + slideOutVertically()
-                    ) {
-                        Column(modifier = Modifier.padding(top = 8.dp)) {
-                            OutlinedTextField(
-                                value = inMapSearchQuery,
-                                onValueChange = { inMapSearchQuery = it },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("in_map_search_field"),
-                                placeholder = { Text("Buscar casa, quadra, CIU, rodovia ou CEP...") },
-                                leadingIcon = {
+                    // Permanently Visible Free Search Bar (consultas livres no Google Maps fora do propósito do aplicativo)
+                    Column(modifier = Modifier.padding(top = 8.dp)) {
+                        OutlinedTextField(
+                            value = inMapSearchQuery,
+                            onValueChange = {
+                                inMapSearchQuery = it
+                                if (it.isBlank()) {
+                                    freeSearchResults = emptyList()
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("free_search_maps_field"),
+                            placeholder = {
+                                Text(
+                                    "Pesquisa livre (qualquer local, rua, cidade, ponto...)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
+                            leadingIcon = {
+                                if (isSearchingFree) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                } else {
                                     Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                },
-                                trailingIcon = {
+                                }
+                            },
+                            trailingIcon = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     if (inMapSearchQuery.isNotBlank()) {
                                         IconButton(onClick = {
                                             inMapSearchQuery = ""
+                                            freeSearchResults = emptyList()
+                                            activeFreeSearchResult = null
                                             focusManager.clearFocus(force = true)
                                         }) {
                                             Icon(Icons.Default.Clear, contentDescription = "Limpar")
                                         }
                                     }
-                                },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                keyboardActions = KeyboardActions(onSearch = {
-                                    focusManager.clearFocus(force = true)
-                                    if (inMapSearchQuery.isNotBlank()) {
-                                        onSearchQuery?.invoke(inMapSearchQuery)
+                                    IconButton(onClick = {
+                                        executeFreeSearch(inMapSearchQuery)
+                                    }) {
+                                        Icon(Icons.Default.Navigation, contentDescription = "Buscar", tint = MaterialTheme.colorScheme.primary)
                                     }
-                                }),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                    unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                                )
+                                }
+                            },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = {
+                                executeFreeSearch(inMapSearchQuery)
+                            }),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surface
                             )
+                        )
 
-                            // Quick sample chips for Brasília
-                            Row(
+                        // If free search returned multiple results, show suggestion dropdown
+                        if (freeSearchResults.size > 1) {
+                            Surface(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(top = 6.dp)
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    .padding(top = 4.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shadowElevation = 4.dp
                             ) {
-                                listOf("QNM 3 CJ N", "SETOR M SUL", "DF-001 KM 12", "72215-030", "Taguatinga", "Ceilândia Centro").forEach { sample ->
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                                        modifier = Modifier.padding(vertical = 2.dp),
-                                        onClick = {
-                                            inMapSearchQuery = sample
-                                            focusManager.clearFocus(force = true)
-                                            onSearchQuery?.invoke(sample)
+                                Column(modifier = Modifier.padding(6.dp)) {
+                                    freeSearchResults.take(4).forEach { item ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { onSelectFreePlace(item) }
+                                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Place,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = item.name,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = item.address,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
                                         }
-                                    ) {
-                                        Text(
-                                            text = sample,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
                                     }
+                                }
+                            }
+                        }
+
+                        // Quick sample chips for free search
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 6.dp)
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf("Aeroporto de Brasília", "Congresso Nacional", "Hospital de Base", "Parque da Cidade", "Taguatinga Shopping", "Torre de TV").forEach { sample ->
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                                    modifier = Modifier.padding(vertical = 2.dp),
+                                    onClick = {
+                                        inMapSearchQuery = sample
+                                        executeFreeSearch(sample)
+                                    }
+                                ) {
+                                    Text(
+                                        text = sample,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                             }
                         }
@@ -1171,6 +1416,106 @@ fun GoogleMapsScreen(
                 }
             }
         }
+
+        // 5. Bottom Card for Free Search Result (quando o usuário consulta qualquer local fora do escopo)
+        val freePlace = activeFreeSearchResult
+        if (freePlace != null && lot == null && kmRec == null) {
+            ElevatedCard(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(12.dp)
+                    .testTag("google_maps_free_search_card"),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 10.dp)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.tertiaryContainer,
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text(
+                                text = "Pesquisa Livre • ${freePlace.source}",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { activeFreeSearchResult = null },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Fechar Card", modifier = Modifier.size(18.dp))
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = freePlace.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = freePlace.address,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                val gmmIntentUri = Uri.parse("google.navigation:q=${freePlace.latitude},${freePlace.longitude}")
+                                val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri).apply {
+                                    setPackage("com.google.android.apps.maps")
+                                }
+                                try {
+                                    context.startActivity(mapIntent)
+                                } catch (_: Exception) {
+                                    val webUri = Uri.parse("https://www.google.com/maps/dir/?api=1&destination=${freePlace.latitude},${freePlace.longitude}")
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, webUri))
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Directions, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Rotas", style = MaterialTheme.typography.labelMedium)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("Coordenadas", "${freePlace.latitude}, ${freePlace.longitude}"))
+                                Toast.makeText(context, "Coordenadas copiadas!", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Copiar", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1271,6 +1616,19 @@ private fun generateGoogleMapsWebHtml(apiKey: String): String {
 
     function googleMapCenter(lat, lon, zoom) {
       map.flyTo([lat, lon], zoom, { duration: 1.2 });
+    }
+
+    function setFreeSearchMarker(name, addr, lat, lon) {
+      if (window.freeMarker) map.removeLayer(window.freeMarker);
+      window.freeMarker = L.circleMarker([lat, lon], {
+        radius: 9,
+        color: '#7c3aed',
+        fillColor: '#a855f7',
+        fillOpacity: 0.95,
+        weight: 3
+      }).addTo(map);
+      window.freeMarker.bindPopup("<b>" + name + "</b><br/>" + addr).openPopup();
+      map.flyTo([lat, lon], 16, { duration: 0.8 });
     }
 
     function setMapLayer(type) {

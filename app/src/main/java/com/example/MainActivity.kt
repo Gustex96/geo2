@@ -46,10 +46,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import com.example.ui.screens.DigitalCartographyScreen
 import com.example.ui.screens.FavoritesScreen
 import com.example.ui.screens.GoogleMapsScreen
-import com.example.ui.screens.KmdfTableScreen
 import com.example.ui.screens.LotDetailSheet
 import com.example.ui.screens.ReverseGeocodeScreen
 import com.example.ui.screens.SearchScreen
@@ -94,10 +92,10 @@ class MainActivity : ComponentActivity() {
                 // BackHandler to close sheet or return to Search tab
                 BackHandler(enabled = uiState.selectedLot != null || uiState.currentTab != 0) {
                     focusManager.clearFocus(force = true)
-                    if (uiState.selectedLot != null) {
-                        viewModel.clearSelectedLot()
-                    } else if (uiState.currentTab != 0) {
+                    if (uiState.currentTab != 0) {
                         viewModel.setTab(0)
+                    } else if (uiState.selectedLot != null) {
+                        viewModel.clearSelectedLot()
                     }
                 }
 
@@ -109,11 +107,9 @@ class MainActivity : ComponentActivity() {
                                 Text(
                                     text = when (uiState.currentTab) {
                                         0 -> "GeoDF • Residências Identificadas"
-                                        1 -> "Cartografia Digital • DF"
-                                        2 -> "Google Maps • Distrito Federal"
-                                        3 -> "Tabela KM-DF (KMZ)"
-                                        4 -> "Geocodificação Reversa"
-                                        5 -> "Imóveis Salvos"
+                                        1 -> "Google Maps • Distrito Federal"
+                                        2 -> "Geocodificação Reversa"
+                                        3 -> "Imóveis Salvos"
                                         else -> "GeoDF"
                                     },
                                     style = MaterialTheme.typography.titleMedium,
@@ -123,14 +119,14 @@ class MainActivity : ComponentActivity() {
                             actions = {
                                 IconButton(
                                     onClick = {
-                                        if (uiState.currentTab == 5) viewModel.setTab(0) else viewModel.setTab(5)
+                                        if (uiState.currentTab == 3) viewModel.setTab(0) else viewModel.setTab(3)
                                     },
                                     modifier = Modifier.testTag("top_action_favorites")
                                 ) {
                                     Icon(
-                                        imageVector = if (uiState.currentTab == 5) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
+                                        imageVector = if (uiState.currentTab == 3) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
                                         contentDescription = "Imóveis Salvos",
-                                        tint = if (uiState.currentTab == 5 || uiState.favorites.isNotEmpty()) CadastreYellow else MaterialTheme.colorScheme.onSurfaceVariant
+                                        tint = if (uiState.currentTab == 3 || uiState.favorites.isNotEmpty()) CadastreYellow else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             },
@@ -170,12 +166,12 @@ class MainActivity : ComponentActivity() {
                                 },
                                 icon = {
                                     Icon(
-                                        imageVector = if (uiState.currentTab == 1) Icons.Filled.Layers else Icons.Outlined.Layers,
-                                        contentDescription = "Cartografia"
+                                        imageVector = if (uiState.currentTab == 1) Icons.Filled.Map else Icons.Outlined.Map,
+                                        contentDescription = "Google Maps"
                                     )
                                 },
-                                label = { Text("Cartografia") },
-                                modifier = Modifier.testTag("nav_tab_cartography")
+                                label = { Text("Google Maps") },
+                                modifier = Modifier.testTag("nav_tab_google_maps")
                             )
 
                             NavigationBarItem(
@@ -186,39 +182,7 @@ class MainActivity : ComponentActivity() {
                                 },
                                 icon = {
                                     Icon(
-                                        imageVector = if (uiState.currentTab == 2) Icons.Filled.Map else Icons.Outlined.Map,
-                                        contentDescription = "Google Maps"
-                                    )
-                                },
-                                label = { Text("Google Maps") },
-                                modifier = Modifier.testTag("nav_tab_google_maps")
-                            )
-
-                            NavigationBarItem(
-                                selected = uiState.currentTab == 3,
-                                onClick = {
-                                    focusManager.clearFocus(force = true)
-                                    viewModel.setTab(3)
-                                },
-                                icon = {
-                                    Icon(
-                                        imageVector = if (uiState.currentTab == 3) Icons.Filled.TableChart else Icons.Outlined.TableChart,
-                                        contentDescription = "KM-DF"
-                                    )
-                                },
-                                label = { Text("KM-DF") },
-                                modifier = Modifier.testTag("nav_tab_kmdf")
-                            )
-
-                            NavigationBarItem(
-                                selected = uiState.currentTab == 4,
-                                onClick = {
-                                    focusManager.clearFocus(force = true)
-                                    viewModel.setTab(4)
-                                },
-                                icon = {
-                                    Icon(
-                                        imageVector = if (uiState.currentTab == 4) Icons.Filled.PinDrop else Icons.Outlined.PinDrop,
+                                        imageVector = if (uiState.currentTab == 2) Icons.Filled.PinDrop else Icons.Outlined.PinDrop,
                                         contentDescription = "Reversa"
                                     )
                                 },
@@ -243,19 +207,12 @@ class MainActivity : ComponentActivity() {
                                 onSelectLot = viewModel::selectLot,
                                 onViewOnMap = { lot ->
                                     viewModel.selectLot(lot)
-                                    viewModel.setTab(1) // Open Cartografia Digital!
+                                    viewModel.setTab(1) // Direct to Google Maps!
                                 },
                                 onToggleFavorite = viewModel::toggleFavorite
                             )
 
-                            1 -> DigitalCartographyScreen(
-                                uiState = uiState,
-                                onSelectLot = viewModel::selectLot,
-                                onMapCoordinateTapped = viewModel::onMapTappedCoordinate,
-                                onSelectKmdfRecord = viewModel::selectKmdfRecord
-                            )
-
-                            2 -> GoogleMapsScreen(
+                            1 -> GoogleMapsScreen(
                                 uiState = uiState,
                                 onSelectLot = viewModel::selectLot,
                                 onSelectKmdfRecord = viewModel::selectKmdfRecord,
@@ -266,21 +223,7 @@ class MainActivity : ComponentActivity() {
                                 onSearchQuery = viewModel::performSearch
                             )
 
-                            3 -> KmdfTableScreen(
-                                uiState = uiState,
-                                onQueryChanged = viewModel::onKmdfSearchQueryChanged,
-                                onRodoviaSelected = viewModel::onRodoviaFilterSelected,
-                                onCustomUrlChanged = viewModel::onCustomKmzUrlChanged,
-                                onDownloadKmz = viewModel::loadKmzFromUrl,
-                                onLoadFileUri = viewModel::loadKmzFromUri,
-                                onViewOnMap = { record ->
-                                    viewModel.viewKmdfOnMap(record)
-                                    viewModel.setTab(1) // Open in Digital Cartography
-                                },
-                                onReverseGeocodeKm = viewModel::reverseGeocodeKmdfRecord
-                            )
-
-                            4 -> ReverseGeocodeScreen(
+                            2 -> ReverseGeocodeScreen(
                                 uiState = uiState,
                                 onLatChanged = viewModel::onReverseLatChanged,
                                 onLonChanged = viewModel::onReverseLonChanged,
@@ -288,17 +231,17 @@ class MainActivity : ComponentActivity() {
                                 onSelectLot = viewModel::selectLot,
                                 onViewOnMap = { lot ->
                                     viewModel.selectLot(lot)
-                                    viewModel.setTab(1)
+                                    viewModel.setTab(1) // Direct to Google Maps!
                                 },
                                 onToggleFavorite = viewModel::toggleFavorite
                             )
 
-                            5 -> FavoritesScreen(
+                            3 -> FavoritesScreen(
                                 uiState = uiState,
                                 onSelectLot = viewModel::selectLot,
                                 onViewOnMap = { lot ->
                                     viewModel.selectLot(lot)
-                                    viewModel.setTab(1)
+                                    viewModel.setTab(1) // Direct to Google Maps!
                                 },
                                 onToggleFavorite = viewModel::toggleFavorite,
                                 onSearchSuggestion = { query ->
@@ -310,19 +253,20 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // Lot Detail Sheet modal
-                    uiState.selectedLot?.let { lot ->
-                        LotDetailSheet(
-                            lot = lot,
-                            isFavorite = viewModel.isFavorite(lot),
-                            onDismiss = viewModel::clearSelectedLot,
-                            onViewOnMap = {
-                                viewModel.setTab(1) // View in Digital Cartography!
-                                viewModel.clearSelectedLot()
-                            },
-                            onToggleFavorite = { viewModel.toggleFavorite(lot) },
-                            sheetState = sheetState
-                        )
+                    // Lot Detail Sheet modal (shown on search/favorites, dismissed when on Google Maps so in-map card takes over)
+                    if (uiState.currentTab != 1) {
+                        uiState.selectedLot?.let { lot ->
+                            LotDetailSheet(
+                                lot = lot,
+                                isFavorite = viewModel.isFavorite(lot),
+                                onDismiss = viewModel::clearSelectedLot,
+                                onViewOnMap = {
+                                    viewModel.setTab(1) // Direct to Google Maps!
+                                },
+                                onToggleFavorite = { viewModel.toggleFavorite(lot) },
+                                sheetState = sheetState
+                            )
+                        }
                     }
                 }
             }

@@ -36,7 +36,7 @@ android {
     if (targetF.exists()) {
       FileInputStream(targetF).use { envProp.load(it) }
     }
-    val resolvedKey = envProp.getProperty("MAPS_API_KEY", "AIzaSyCiBwKhhvBPSgJo6JnhwLptOUzBCyo8Vj4").trim()
+    val resolvedKey = envProp.getProperty("MAPS_API_KEY", "AIzaSyBxyQgxK46ng3x6aajW_GZSFbkdxS39MSk").trim()
     manifestPlaceholders["MAPS_API_KEY"] = resolvedKey
     buildConfigField("String", "MAPS_API_KEY", "\"${resolvedKey}\"")
   }
